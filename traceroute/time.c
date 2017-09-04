@@ -1,7 +1,7 @@
 /*
-    Copyright (c) 2000, 2003	    Dmitry K. Butskoy
-				    <buc@citadel.stu.neva.ru>
-    License:  GPL		
+    Copyright (c)  2006, 2007		Dmitry Butskoy
+					<buc@citadel.stu.neva.ru>
+    License:  GPL v2 or any later
 
     See COPYING for the status of this software.
 */
@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/time.h>
+
+#include "traceroute.h"
 
 
 /*  Just returns current time as double, with most possible precision...  */

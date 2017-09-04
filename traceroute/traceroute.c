@@ -1,7 +1,7 @@
 /*
-    Copyright (c)  2006		    Dmitry K. Butskoy
-				    <buc@citadel.stu.neva.ru>
-    License:  GPL		
+    Copyright (c)  2006, 2007		Dmitry Butskoy
+					<buc@citadel.stu.neva.ru>
+    License:  GPL v2 or any later
 
     See COPYING for the status of this software.
 */
@@ -11,20 +11,16 @@
 #include <stdarg.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/poll.h>
-#include <time.h>
-#include <sys/time.h>
 #include <netinet/icmp6.h>
 #include <netinet/ip_icmp.h>
 #include <netinet/in.h>
 #include <netinet/ip6.h>
-#include <arpa/inet.h>
 #include <netdb.h>
-#include <net/if.h>
 #include <errno.h>
 #include <locale.h>
+#include <sys/utsname.h>
 #include <linux/types.h>
 #include <linux/errqueue.h>
 
@@ -48,6 +44,14 @@
 #define IPV6_RECVHOPLIMIT IPV6_HOPLIMIT
 #endif
 
+#ifndef IP_PMTUDISC_PROBE
+#define IP_PMTUDISC_PROBE 3
+#endif
+
+#ifndef IPV6_PMTUDISC_PROBE
+#define IPV6_PMTUDISC_PROBE 3
+#endif
+
 
 #define MAX_HOPS	255
 #define MAX_PROBES	10
@@ -58,20 +62,21 @@
 #define DEF_NUM_PROBES	3
 #define DEF_WAIT_SECS	5.0
 #define DEF_SEND_SECS	0
-#define DEF_PACKET_LEN	40
+#define DEF_DATA_LEN	40	/*  all but IP header...  */
 #define MAX_PACKET_LEN	65000
+#ifndef DEF_AF
 #define DEF_AF		AF_INET
+#endif
 
+#define ttl2hops(X)	(((X) <= 64 ? 65 : ((X) <= 128 ? 129 : 256)) - (X))
 
-#define __TEXT(X)       #X
-#define _TEXT(X)        __TEXT(X)
 
 static char version_string[] = "Modern traceroute for Linux, "
 				"version " _TEXT(VERSION) ", " __DATE__
-				"\nCopyright (c) 2006  Dmitry Butskoy, "
-				"  License: GPL";
+				"\nCopyright (c) 2008  Dmitry Butskoy, "
+				"  License: GPL v2 or any later";
 static int debug = 0;
-static unsigned int first_hop = 0;
+static unsigned int first_hop = 1;
 static unsigned int max_hops = DEF_HOPS;
 static unsigned int sim_probes = DEF_SIM_PROBES;
 static unsigned int probes_per_hop = DEF_NUM_PROBES;
@@ -81,23 +86,35 @@ static int num_gateways = 0;
 static unsigned char *rtbuf = NULL;
 static size_t rtbuf_len = 0;
 
+static size_t header_len = 0;
+static size_t data_len = 0;
+
 static int dontfrag = 0;
 static int noresolve = 0;
+static int extension = 0;
 static int as_lookups = 0;
 static unsigned int dst_port_seq = 0;
 static unsigned int tos = 0;
 static unsigned int flow_label = 0;
 static int noroute = 0;
-static unsigned int packet_len = DEF_PACKET_LEN;
+static int packet_len = -1;
 static double wait_secs = DEF_WAIT_SECS;
 static double send_secs = DEF_SEND_SECS;
+static int mtudisc = 0;
+static int backward = 0;
 
 static sockaddr_any dst_addr = {{ 0, }, };
 static char *dst_name = NULL;
 static char *device = NULL;
 static sockaddr_any src_addr = {{ 0, }, };
+static unsigned int src_port = 0;
 
-static tr_ops *ops = &udp_ops;
+static const char *module = "default";
+static const tr_module *ops = NULL;
+
+static char *opts[16] = { NULL, };	/*  assume enough   */
+static unsigned int opts_idx = 1;	/*  first one reserved...   */
+
 
 static int af = 0;
 
@@ -145,9 +162,9 @@ static void check_progname (const char *name) {
 	else if (p[l] == '4')  af = AF_INET;
 
 	if (!strncmp (p, "tcp", 3))
-		ops = &tcp_ops;
+		module = "tcp";
 	if (!strncmp (p, "tracert", 7))
-		ops = &icmp_ops;
+		module = "icmp";
 
 	return;
 }
@@ -218,6 +235,7 @@ static const char *addr2str (const sockaddr_any *addr) {
 
 
 /*	IP  options  stuff	    */
+
 static void init_ip_options (void) {
 	sockaddr_any *gates;
 	int i, max;
@@ -326,12 +344,64 @@ static int set_source (CLIF_option *optn, char *arg) {
 	return  getaddr (arg, &src_addr);
 }
 
-	
-static int set_ops (CLIF_option *optn, char *arg) {
+static int set_port (CLIF_option *optn, char *arg) {
+	unsigned int *up = (unsigned int *) optn->data;
+	char *q;
 
-	ops = (tr_ops *) optn->data;
+	*up = strtoul (arg, &q, 0);
+	if (q == arg) {
+	    struct servent *s = getservbyname (arg, NULL);
+
+	    if (!s)  return -1;
+	    *up = ntohs (s->s_port);
+	}
 
 	return 0;
+}
+
+static int set_module (CLIF_option *optn, char *arg) {
+
+	module = (char *) optn->data;
+
+	return 0;
+}
+
+
+static int set_mod_option (CLIF_option *optn, char *arg) {
+
+	if (!strcmp (arg, "help")) {
+	    const tr_module *mod = tr_get_module (module);
+
+	    if (mod && mod->options) {
+		/*  just to set common keyword flag...  */
+		CLIF_parse (1, &arg, 0, 0, CLIF_KEYWORD);
+		CLIF_print_options (NULL, mod->options);
+	    } else
+		fprintf (stderr, "No options for module `%s'\n", module);
+
+	    exit (0);
+	}
+
+	if (opts_idx >= sizeof (opts) / sizeof (*opts))  {
+	    fprintf (stderr, "Too many module options\n");
+	    return -1;
+	}
+
+	opts[opts_idx] = strdup (arg);
+	if (!opts[opts_idx])  error ("strdup");
+	opts_idx++;
+
+	return 0;
+}
+
+
+static int set_raw (CLIF_option *optn, char *arg) {
+	char buf[1024];
+
+	module = "raw";
+
+	snprintf (buf, sizeof (buf), "protocol=%s", arg);
+	return  set_mod_option (optn, buf);
 }
 
 
@@ -354,7 +424,7 @@ static CLIF_option option_list[] = {
 	{ "6", 0, 0, "Use IPv6", set_af, (void *) 6, 0, 0 },
 	{ "d", "debug", 0, "Enable socket level debugging",
 			CLIF_set_flag, &debug, 0, 0 },
-	{ "F", "dont-fragment", 0, "Set DF (don't fragment bit) on",
+	{ "F", "dont-fragment", 0, "Do not fragment packets",
 			CLIF_set_flag, &dontfrag, 0, CLIF_ABBREV },
 	{ "f", "first", "first_ttl", "Start from the %s hop (instead from 1)",
 			CLIF_set_uint, &first_hop, 0, 0 },
@@ -363,11 +433,9 @@ static CLIF_option option_list[] = {
 			    _TEXT(MAX_GATEWAYS_6) " for IPv6)",
 			add_gateway, 0, 0, CLIF_SEVERAL },
 	{ "I", "icmp", 0, "Use ICMP ECHO for tracerouting",
-			set_ops, &icmp_ops, 0, 0 },
+			set_module, "icmp", 0, 0 },
 	{ "T", "tcp", 0, "Use TCP SYN for tracerouting",
-			set_ops, &tcp_ops, 0, 0 },
-	{ "U", "udp", 0, "Use UDP datagram (default) for tracerouting",
-			set_ops, &udp_ops, 0, CLIF_EXTRA },
+			set_module, "tcp", 0, 0 },
 	{ "i", "interface", "device", "Specify a network interface "
 			    "to operate with",
 			CLIF_set_string, &device, 0, 0 },
@@ -380,14 +448,16 @@ static CLIF_option option_list[] = {
 			CLIF_set_uint, &sim_probes, 0, 0 },
 	{ "n", 0, 0, "Do not resolve IP addresses to their domain names",
 			CLIF_set_flag, &noresolve, 0, 0 },
-	{ "p", "port", "port", "Use destination port %s. "
-			    "It is an initial value for the UDP destination "
-			    "port (incremented by each probe, default is "
-			    _TEXT(DEF_UDP_PORT) "), for the ICMP "
-			    "seq number (incremented as well, default from 1), "
-			    "and the constant destination port for TCP tries "
-			    "(default is " _TEXT(DEF_TCP_PORT) ")",
-			    CLIF_set_uint, &dst_port_seq, 0, 0 },
+	{ "p", "port", "port", "Set the destination port to use. "
+			    "It is either initial udp port value for "
+			    "\"default\" method (incremented by each probe, "
+			    "default is " _TEXT(DEF_START_PORT) "), "
+			    "or initial seq for \"icmp\" (incremented as well, "
+			    "default from 1), or some constant destination port"
+			    " for other methods (with default of "
+			    _TEXT(DEF_TCP_PORT) " for \"tcp\", "
+			    _TEXT(DEF_UDP_PORT) " for \"udp\", etc.)",
+			    set_port, &dst_port_seq, 0, 0 },
 	{ "t", "tos", "tos", "Set the TOS (IPv4 type of service) or TC "
 			    "(IPv6 traffic class) value for outgoing packets",
 			    CLIF_set_uint, &tos, 0, 0 },
@@ -412,10 +482,41 @@ static CLIF_option option_list[] = {
 			    "in milliseconds, else it is a number of seconds "
 			    "(float point values allowed too)",
 			    CLIF_set_double, &send_secs, 0, 0 },
+	{ "e", "extensions", 0, "Show ICMP extensions (if present), "
+			    "including MPLS",
+			    CLIF_set_flag, &extension, 0, CLIF_ABBREV },
 	{ "A", "as-path-lookups", 0, "Perform AS path lookups in routing "
 			    "registries and print results directly after "
 			    "the corresponding addresses",
 			    CLIF_set_flag, &as_lookups, 0, 0 },
+	{ "M", "module", "name", "Use specified module (either builtin or "
+			    "external) for traceroute operations. Most methods "
+			    "have their shortcuts (`-I' means `-M icmp' etc.)",
+			    CLIF_set_string, &module, 0, CLIF_EXTRA },
+	{ "O", "options", "OPTS", "Use module-specific option %s for the "
+			    "traceroute module. Several %s allowed, separated "
+			    "by comma. If %s is \"help\", print info about "
+			    "available options",
+			    set_mod_option, 0, 0, CLIF_SEVERAL | CLIF_EXTRA },
+	{ 0, "sport", "num", "Use source port %s for outgoing packets. "
+			    "Implies `-N 1'",
+			    set_port, &src_port, 0, CLIF_EXTRA },
+	{ "U", "udp", 0, "Use UDP to particular port for tracerouting "
+			    "(instead of increasing the port per each probe), "
+			    "default port is " _TEXT(DEF_UDP_PORT),
+			    set_module, "udp", 0, CLIF_EXTRA },
+	{ 0, "UL", 0, "Use UDPLITE for tracerouting (default dest port is "
+			    _TEXT(DEF_UDP_PORT) ")",
+			    set_module, "udplite", 0, CLIF_ONEDASH|CLIF_EXTRA },
+	{ "P", "protocol", "prot", "Use raw packet of protocol %s "
+			    "for tracerouting", 
+			    set_raw, 0, 0, CLIF_EXTRA },
+	{ 0, "mtu", 0, "Discover MTU along the path being traced. "
+			    "Implies `-F -N 1'",
+			    CLIF_set_flag, &mtudisc, 0, CLIF_EXTRA },
+	{ 0, "back", 0, "Guess the number of hops in the backward path "
+			    "and print if it differs",
+			    CLIF_set_flag, &backward, 0, CLIF_EXTRA },
 	CLIF_VERSION_OPTION (version_string),
 	CLIF_HELP_OPTION,
 	CLIF_END_OPTION
@@ -424,10 +525,10 @@ static CLIF_option option_list[] = {
 static CLIF_argument arg_list[] = {
         { "host", "The host to traceroute to",
 				set_host, 0, CLIF_STRICT },
-	{ "packetlen", "Specify an alternate probe packet length "
-			"(default is " _TEXT(DEF_PACKET_LEN) ")."
-			" Useless for TCP SYN",
-				CLIF_arg_uint, &packet_len, 0 },
+	{ "packetlen", "The full packet length (default is the length of "
+			"an IP header plus " _TEXT(DEF_DATA_LEN) "). Can be "
+			"ignored or increased to a minimal allowed value",
+				CLIF_arg_int, &packet_len, 0 },
 	CLIF_END_ARGUMENT
 };
 
@@ -447,7 +548,10 @@ int main (int argc, char *argv[]) {
 	)  exit (2);
 
 
-	if (geteuid () != 0 && ops != &udp_ops)
+	ops = tr_get_module (module);
+	if (!ops)  ex_error ("Unknown traceroute module %s", module);
+
+	if (!ops->user && geteuid () != 0)
 	    ex_error ("The specified type of tracerouting "
 			"is allowed for superuser only");
 
@@ -458,8 +562,6 @@ int main (int argc, char *argv[]) {
 		ex_error ("max hops cannot be more than " _TEXT(MAX_HOPS));
 	if (!probes_per_hop || probes_per_hop > MAX_PROBES)
 		ex_error ("no more than " _TEXT(MAX_PROBES) " probes per hop");
-	if (!sim_probes || sim_probes > max_hops * probes_per_hop)
-		ex_error ("sim hops out of range");
 	if (wait_secs < 0)
 		ex_error ("bad wait seconds `%g' specified", wait_secs);
 	if (packet_len > MAX_PACKET_LEN)
@@ -475,8 +577,16 @@ int main (int argc, char *argv[]) {
 		dst_addr.sin6.sin6_flowinfo =
 			((tos & 0xff) << 20) | (flow_label & 0x000fffff);
 
+	if (src_port) {
+	    src_addr.sin.sin_port = htons ((u_int16_t) src_port);
+	    src_addr.sa.sa_family = af;
+	}
 
-	/*  make sure we don't std{in|,out,err} to open sockets  */
+	if (src_port || ops->one_per_time)
+		sim_probes = 1;
+
+
+	/*  make sure we don't std{in,out,err} to open sockets  */
 	make_fd_used (0);
 	make_fd_used (1);
 	make_fd_used (2);
@@ -484,12 +594,37 @@ int main (int argc, char *argv[]) {
 
 	init_ip_options ();
 
+	header_len = (af == AF_INET ? sizeof (struct iphdr)
+				    : sizeof (struct ip6_hdr)) +
+			rtbuf_len + ops->header_len;
+
+	if (mtudisc) {
+	    dontfrag = 1;
+	    sim_probes = 1;
+	    packet_len = MAX_PACKET_LEN;
+	}
+
+	if (packet_len < 0) {
+	    if (DEF_DATA_LEN >= ops->header_len)
+		    data_len = DEF_DATA_LEN - ops->header_len;
+	} else {
+	    if (packet_len >= header_len)
+		    data_len = packet_len - header_len;
+	}
+
 
 	num_probes = max_hops * probes_per_hop;
 	probes = calloc (num_probes, sizeof (*probes));
 	if (!probes)  error ("calloc");
 
-	if (ops->init (dst_name, &dst_addr, dst_port_seq, packet_len) < 0)
+
+	if (ops->options && opts_idx > 1) {
+	    opts[0] = strdup (module);	    /*  aka argv[0] ...  */
+	    if (CLIF_parse (opts_idx, opts, ops->options, 0, CLIF_KEYWORD) < 0)
+		    exit (2);
+	}
+
+	if (ops->init (&dst_addr, dst_port_seq, &data_len) < 0)
 		ex_error ("trace method's init failed");
 
 
@@ -499,110 +634,23 @@ int main (int argc, char *argv[]) {
 }
 
 
-/*	POLL  STUFF	    */
-
-static struct pollfd *pfd = NULL;
-static unsigned int num_polls = 0;
-
-void add_poll (int fd, int events) {
-	int i;
-
-	for (i = 0; i < num_polls && pfd[i].fd > 0; i++) ;
-
-	if (i == num_polls) {
-	    pfd = realloc (pfd, ++num_polls * sizeof (*pfd));
-	    if (!pfd)  error ("realloc");
-	}
-
-	pfd[i].fd = fd;
-	pfd[i].events = events;
-}
-
-void del_poll (int fd) {
-	int i;
-
-	for (i = 0; i < num_polls && pfd[i].fd != fd; i++) ;
-
-	if (i < num_polls)  pfd[i].fd = -1;    /*  or just zero it...  */
-}
-
-static int cleanup_polls (void) {
-	int i;
-
-	for (i = 0; i < num_polls && pfd[i].fd > 0; i++) ;
-
-	if (i < num_polls) {	/*  a hole have found   */
-	    int j;
-
-	    for (j = i + 1; j < num_polls; j++) {
-		if (pfd[j].fd > 0) {
-		    pfd[i++] = pfd[j];
-		    pfd[j].fd = -1;
-		}
-	    }
-	}
-
-	return i;
-}
-
-static void do_poll (double timeout) {
-	int nfds, n, i;
-
-	nfds = cleanup_polls ();
-
-	if (!nfds)  return;
-
-	n = poll (pfd, nfds, timeout * 1000);
-	if (n < 0) {
-	    if (errno == EINTR)  return;
-	    error ("poll");
-	}
-
-	for (i = 0; n && i < num_polls; i++) {
-	    if (pfd[i].revents) {
-		ops->recv_probe (pfd[i].fd, pfd[i].revents, probes, num_probes);
-		n--;
-	    }
-	}
-
-	return;
-}
-
-
 /*	PRINT  STUFF	    */
-
-static int equal_addr (const sockaddr_any *a, const sockaddr_any *b) {
-
-	if (!a->sa.sa_family)
-		return 0;
-
-	if (a->sa.sa_family != b->sa.sa_family)
-		return 0;
-
-	if (a->sa.sa_family == AF_INET6)
-	    return  !memcmp (&a->sin6.sin6_addr, &b->sin6.sin6_addr,
-						sizeof (a->sin6.sin6_addr));
-	else
-	    return  !memcmp (&a->sin.sin_addr, &b->sin.sin_addr,
-						sizeof (a->sin.sin_addr));
-	return 0;	/*  not reached   */
-}
 
 static void print_header (void) {
 
 	/*  Note, without ending new-line!  */
 	printf ("traceroute to %s (%s), %u hops max, %u byte packets",
-			dst_name, addr2str (&dst_addr), max_hops, packet_len);
+				dst_name, addr2str (&dst_addr), max_hops,
+				header_len + data_len);
 	fflush (stdout);
 }
+
 
 static void print_addr (sockaddr_any *res) {
 	const char *str;
 
-	if (!res->sa.sa_family) {
-		printf (" *");
+	if (!res->sa.sa_family)
 		return;
-	}
 
 	str = addr2str (res);
 
@@ -624,29 +672,47 @@ static void print_addr (sockaddr_any *res) {
 		printf (" [%s]", get_as_path (str));
 }
 
+
 static void print_probe (probe *pb) {
-	unsigned int idx, np;
+	unsigned int idx = (pb - probes);
+	unsigned int ttl = idx / probes_per_hop + 1;
+	unsigned int np = idx % probes_per_hop;
 
-	idx = (pb - probes);
-	np = idx % probes_per_hop;
+	if (np == 0)
+		printf ("\n%2u ", ttl);
 
-	if (np == 0) {
-	    int ttl;
 
-	    ttl = idx / probes_per_hop + 1;
+	if (!pb->res.sa.sa_family)
+		printf (" *");
+	else {
+	    int prn = !np;	/*  print if the first...  */
 
-	    printf ("\n%2u ", ttl);
-	    print_addr (&pb->res);
+	    if (np) {	    /*  ...and if differs with previous   */
+		probe *p;
+
+		/*  skip expired   */
+		for (p = pb - 1; np && !p->res.sa.sa_family; p--, np--) ;
+
+		if (!np ||
+		    !equal_addr (&p->res, &pb->res) ||
+		    (extension && p->ext != pb->ext &&
+			!(p->ext && pb->ext && !strcmp (p->ext, pb->ext))) ||
+		    (backward && p->recv_ttl != pb->recv_ttl)
+		)  prn = 1;
+	    }
+
+	    if (prn) {
+		print_addr (&pb->res);
+
+		if (pb->ext)  printf (" <%s>", pb->ext);
+
+		if (backward && pb->recv_ttl) {
+		    int hops = ttl2hops (pb->recv_ttl);
+		    if (hops != ttl)  printf (" '-%d'", hops);
+		}
+	    }
 	}
-	else {	/*  print if differs with previous   */
-	    probe *p;
 
-	    /*  skip expired   */
-	    for (p = pb - 1; np && !p->res.sa.sa_family; p--, np--) ;
-
-	    if (!np || !equal_addr (&p->res, &pb->res))
-		    print_addr (&pb->res);
-	}
 
 	if (pb->recv_time) {
 	    double diff = pb->recv_time - pb->send_time;
@@ -657,10 +723,12 @@ static void print_probe (probe *pb) {
 	if (pb->err_str[0])
 		printf (" %s", pb->err_str);
 
+
 	fflush (stdout);
 
 	return;
 }
+
 
 static void print_end (void) {
 
@@ -750,8 +818,6 @@ static void check_expired (probe *pb) {
 		in the modern routers and computers.
 		The idea comes from tracepath(1) routine.
 	    */
-#define ttl2hops(X)	(((X) <= 64 ? 65 : ((X) <= 128 ? 129 : 256)) - (X))
-
 	    back_hops = ttl2hops (fp->recv_ttl);
 
 	    /*  It is possible that the back path differs from the forward
@@ -799,8 +865,41 @@ replace_by_final:
 }
 
 
+probe *probe_by_seq (int seq) {
+	int n;
+
+	if (seq <= 0)  return NULL;
+
+	for (n = 0; n < num_probes; n++) {
+	    if (probes[n].seq == seq)
+		    return &probes[n];
+	}
+
+	return NULL;
+}
+
+probe *probe_by_sk (int sk) {
+	int n;
+
+	if (sk <= 0)  return NULL;
+
+	for (n = 0; n < num_probes; n++) {
+	    if (probes[n].sk == sk)
+		    return &probes[n];
+	}
+
+	return NULL;
+}
+
+
+static void poll_callback (int fd, int revents) {
+
+	ops->recv_probe (fd, revents);
+}
+
+
 static void do_it (void) {
-	int start = first_hop * probes_per_hop;
+	int start = (first_hop - 1) * probes_per_hop;
 	int end = num_probes;
 	double last_send = 0;
 
@@ -851,6 +950,11 @@ static void do_it (void) {
 
 		    ops->send_probe (pb, ttl);
 
+		    if (!pb->send_time) {
+			if (max_time)  break;	/*  have chances later   */
+			else  error ("send probe");
+		    }
+
 		    last_send = pb->send_time;
 		}
 
@@ -868,7 +972,7 @@ static void do_it (void) {
 
 		if (timeout < 0)  timeout = 0;
 
-		do_poll (timeout);
+		do_poll (timeout, poll_callback);
 	    }
 
 	}
@@ -904,23 +1008,16 @@ void tune_socket (int sk) {
 	}
 
 
-	if (device) {
-	    if (setsockopt (sk, SOL_SOCKET, SO_BINDTODEVICE,
-					device, strlen (device) + 1) < 0
-	    )  error ("setsockopt SO_BINDTODEVICE");
-	}
-
-	if (src_addr.sa.sa_family) {
-	    if (bind (sk, &src_addr.sa, sizeof (src_addr)) < 0)
-		    error ("bind");
-	}
+	bind_socket (sk);
 
 
 	if (af == AF_INET) {
 
-	    i = dontfrag ? IP_PMTUDISC_DO : IP_PMTUDISC_DONT;
-	    if (setsockopt (sk, SOL_IP, IP_MTU_DISCOVER, &i, sizeof(i)) < 0)
-		    error ("setsockopt IP_MTU_DISCOVER");
+	    i = dontfrag ? IP_PMTUDISC_PROBE : IP_PMTUDISC_DONT;
+	    if (setsockopt (sk, SOL_IP, IP_MTU_DISCOVER, &i, sizeof(i)) < 0 &&
+		(!dontfrag || (i = IP_PMTUDISC_DO,
+		 setsockopt (sk, SOL_IP, IP_MTU_DISCOVER, &i, sizeof(i)) < 0))
+	    )  error ("setsockopt IP_MTU_DISCOVER");
 
 	    if (tos) {
 		i = tos;
@@ -931,9 +1028,12 @@ void tune_socket (int sk) {
 	}
 	else if (af == AF_INET6) {
 
-	    i = dontfrag ? IPV6_PMTUDISC_DO : IPV6_PMTUDISC_DONT;
-	    if (setsockopt (sk, SOL_IPV6, IPV6_MTU_DISCOVER, &i, sizeof(i)) < 0)
-		    error ("setsockopt IPV6_MTU_DISCOVER");
+	    i = dontfrag ? IPV6_PMTUDISC_PROBE : IPV6_PMTUDISC_DONT;
+	    if (setsockopt (sk, SOL_IPV6, IPV6_MTU_DISCOVER,&i,sizeof(i)) < 0 &&
+		(!dontfrag || (i = IPV6_PMTUDISC_DO,
+		 setsockopt (sk, SOL_IPV6, IPV6_MTU_DISCOVER,&i,sizeof(i)) < 0))
+	    )  error ("setsockopt IPV6_MTU_DISCOVER");
+
 
 	    if (flow_label) {
 		struct in6_flowlabel_req flr;
@@ -977,9 +1077,9 @@ void tune_socket (int sk) {
 }
 
 
-void parse_icmp_res (probe *pb, int type, int code) {
-	char *str = "";
-	char buf[16];
+void parse_icmp_res (probe *pb, int type, int code, int info) {
+	char *str = NULL;
+	char buf[sizeof (pb->err_str)];
 
 	if (af == AF_INET) {
 
@@ -1011,7 +1111,7 @@ void parse_icmp_res (probe *pb, int type, int code) {
 
 		    case ICMP_UNREACH_PORT:
 			    /*  dest host is reached   */
-			    str = NULL;
+			    str = "";
 			    break;
 
 		    case ICMP_UNREACH_PROTOCOL:
@@ -1019,7 +1119,8 @@ void parse_icmp_res (probe *pb, int type, int code) {
 			    break;
 
 		    case ICMP_UNREACH_NEEDFRAG:
-			    str = "!F";
+			    snprintf (buf, sizeof (buf), "!F-%d", info);
+			    str = buf;
 			    break;
 
 		    case ICMP_UNREACH_SRCFAIL:
@@ -1067,7 +1168,7 @@ void parse_icmp_res (probe *pb, int type, int code) {
 
 		    case ICMP6_DST_UNREACH_NOPORT:
 			    /*  dest host is reached   */
-			    str = NULL;
+			    str = "";
 			    break;
 
 		    default:
@@ -1076,19 +1177,232 @@ void parse_icmp_res (probe *pb, int type, int code) {
 			    break;
 		}
 	    }
+	    else if (type == ICMP6_PACKET_TOO_BIG) {
+		snprintf (buf, sizeof (buf), "!F-%d", info);
+		str = buf;
+	    }
 	}
 
-	if (str && !*str) {
+
+	if (!str) {
 	    snprintf (buf, sizeof (buf), "!<%u-%u>", type, code);
 	    str = buf;
 	}
 
-	if (str) {
+	if (*str) {
 	    strncpy (pb->err_str, str, sizeof (pb->err_str));
 	    pb->err_str[sizeof (pb->err_str) - 1] = '\0';
 	}
 
 	pb->final = 1;
+
+	return;
+}
+
+
+void probe_done (probe *pb) {
+
+	if (pb->sk) {
+	    del_poll (pb->sk);
+	    close (pb->sk);
+	    pb->sk = 0;
+	}
+
+	pb->seq = 0;
+
+	pb->done = 1;
+}
+
+
+void recv_reply (int sk, int err, check_reply_t check_reply) {
+	struct msghdr msg;
+	sockaddr_any from;
+	struct iovec iov;
+	int n;
+	probe *pb;
+	char buf[1280];		/*  min mtu for ipv6 ( >= 576 for ipv4)  */
+	char *bufp = buf;
+	char control[1024];
+	struct cmsghdr *cm;
+	struct sock_extended_err *ee = NULL;
+
+
+	memset (&msg, 0, sizeof (msg));
+	msg.msg_name = &from;
+	msg.msg_namelen = sizeof (from);
+	msg.msg_control = control;
+	msg.msg_controllen = sizeof (control);
+	iov.iov_base = buf;
+	iov.iov_len = sizeof (buf);
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+
+
+	n = recvmsg (sk, &msg, err ? MSG_ERRQUEUE : 0);
+	if (n < 0)  return;
+
+
+	/*  when not MSG_ERRQUEUE, AF_INET returns full ipv4 header
+	    on raw sockets...
+	*/
+
+	if (!err &&
+	    af == AF_INET &&
+	    /*  XXX: Assume that the presence of an extra header means
+		that it is not a raw socket...
+	    */
+	    ops->header_len == 0
+	) {
+	    struct iphdr *ip = (struct iphdr *) bufp;
+	    int hlen;
+
+	    if (n < sizeof (struct iphdr))  return;
+
+	    hlen = ip->ihl << 2;
+	    if (n < hlen)  return;
+
+	    bufp += hlen;
+	    n -= hlen;
+	}
+
+
+	pb = check_reply (sk, err, &from, bufp, n);
+	if (!pb)  return;
+
+
+	if (!err)
+	    memcpy (&pb->res, &from, sizeof (pb->res));
+
+
+	/*  Parse CMSG stuff   */
+
+	for (cm = CMSG_FIRSTHDR (&msg); cm; cm = CMSG_NXTHDR (&msg, cm)) {
+
+	    if (cm->cmsg_level == SOL_SOCKET) {
+
+		if (cm->cmsg_type == SO_TIMESTAMP) {
+		    struct timeval *tv = (struct timeval *) CMSG_DATA (cm);
+
+		    pb->recv_time = tv->tv_sec + tv->tv_usec / 1000000.;
+		}
+	    }
+	    else if (cm->cmsg_level == SOL_IP) {
+
+		if (cm->cmsg_type == IP_TTL)
+			pb->recv_ttl = *((int *) CMSG_DATA (cm));
+		else if (cm->cmsg_type == IP_RECVERR) {
+
+		    ee = (struct sock_extended_err *) CMSG_DATA (cm);
+
+		    if (ee->ee_origin != SO_EE_ORIGIN_ICMP)
+			    ee = NULL;
+		}
+	    }
+	    else if (cm->cmsg_level == SOL_IPV6) {
+
+		if (cm->cmsg_type == IPV6_HOPLIMIT)
+			pb->recv_ttl = *((int *) CMSG_DATA (cm));
+		else if (cm->cmsg_type == IPV6_RECVERR) {
+
+		    ee = (struct sock_extended_err *) CMSG_DATA (cm);
+
+		    if (ee->ee_origin != SO_EE_ORIGIN_ICMP6)
+			    ee = NULL;
+		}
+	    }
+	}
+
+	if (ee) {
+	    memcpy (&pb->res, SO_EE_OFFENDER (ee), sizeof(pb->res));
+	    parse_icmp_res (pb, ee->ee_type, ee->ee_code, ee->ee_info);
+	}
+
+
+	if (!pb->recv_time)
+	    pb->recv_time = get_time ();
+
+
+	if (ee &&
+	    mtudisc &&
+	    ee->ee_info >= header_len &&
+	    ee->ee_info < header_len + data_len
+	) {
+	    data_len = ee->ee_info - header_len;
+
+	    probe_done (pb);
+
+	    /*  clear this probe (as actually the previous hop answers here)
+	      but fill its `err_str' by the info obtained. Ugly, but easy...
+	    */
+	    memset (pb, 0, sizeof (*pb));
+	    snprintf (pb->err_str, sizeof(pb->err_str)-1, "F=%d", ee->ee_info);
+
+	    return;
+	}
+
+
+	if (ee &&
+	    extension &&
+	    header_len + n >= (128 + 8) &&	/*  at least... (rfc4884)  */
+	    header_len <= 128 &&	/*  paranoia   */
+	    ((af == AF_INET && (ee->ee_type == ICMP_TIME_EXCEEDED ||
+				ee->ee_type == ICMP_DEST_UNREACH ||
+				ee->ee_type == ICMP_PARAMETERPROB)) ||
+	     (af == AF_INET6 && (ee->ee_type == ICMP6_TIME_EXCEEDED ||
+				 ee->ee_type == ICMP6_DST_UNREACH))
+	    )
+	) {
+	    int step;
+	    int offs = 128 - header_len;
+
+	    if (n > data_len)  step = 0;	/*  guaranteed at 128 ...  */
+	    else
+		step = af == AF_INET ? 4 : 8;
+
+	    handle_extensions (pb, bufp + offs, n - offs, step);
+	}
+
+
+	probe_done (pb);
+}
+
+
+int equal_addr (const sockaddr_any *a, const sockaddr_any *b) {
+
+	if (!a->sa.sa_family)
+		return 0;
+
+	if (a->sa.sa_family != b->sa.sa_family)
+		return 0;
+
+	if (a->sa.sa_family == AF_INET6)
+	    return  !memcmp (&a->sin6.sin6_addr, &b->sin6.sin6_addr,
+						sizeof (a->sin6.sin6_addr));
+	else
+	    return  !memcmp (&a->sin.sin_addr, &b->sin.sin_addr,
+						sizeof (a->sin.sin_addr));
+	return 0;	/*  not reached   */
+}
+
+
+void bind_socket (int sk) {
+	sockaddr_any *addr, tmp;
+
+	if (device) {
+	    if (setsockopt (sk, SOL_SOCKET, SO_BINDTODEVICE,
+					device, strlen (device) + 1) < 0
+	    )  error ("setsockopt SO_BINDTODEVICE");
+	}
+
+	if (!src_addr.sa.sa_family) {
+	    memset (&tmp, 0, sizeof (tmp));
+	    tmp.sa.sa_family = af;
+	    addr = &tmp;
+	} else
+	    addr = &src_addr;
+
+	if (bind (sk, &addr->sa, sizeof (*addr)) < 0)
+		error ("bind");
 
 	return;
 }
@@ -1101,25 +1415,6 @@ void use_timestamp (int sk) {
 	/*  foo on errors...  */
 }
 
-double get_timestamp (struct msghdr *msg) {
-	struct cmsghdr *cm;
-	double timestamp = 0;
-
-	for (cm = CMSG_FIRSTHDR (msg); cm; cm = CMSG_NXTHDR (msg, cm)) {
-
-	    if (cm->cmsg_level == SOL_SOCKET && cm->cmsg_type == SO_TIMESTAMP) {
-		struct timeval *tv = (struct timeval *)  CMSG_DATA (cm);
-
-		timestamp = tv->tv_sec + tv->tv_usec / 1000000.;
-	    }
-	}
-
-	if (!timestamp)
-		timestamp = get_time ();
-
-	return timestamp;
-}
-
 
 void use_recv_ttl (int sk) {
 	int n = 1;
@@ -1128,21 +1423,83 @@ void use_recv_ttl (int sk) {
 		setsockopt (sk, SOL_IP, IP_RECVTTL, &n, sizeof (n));
 	else if (af == AF_INET6)
 		setsockopt (sk, SOL_IPV6, IPV6_RECVHOPLIMIT, &n, sizeof (n));
-
 	/*  foo on errors   */
-	return;
 }
 
-int get_recv_ttl (struct msghdr *msg) {
-	struct cmsghdr *cm;
-	int ttl = 0;
 
-	for (cm = CMSG_FIRSTHDR (msg); cm; cm = CMSG_NXTHDR (msg, cm)) {
+void use_recverr (int sk) {
+	int val = 1;
 
-	    if ((cm->cmsg_level == SOL_IP && cm->cmsg_type == IP_TTL) ||
-		(cm->cmsg_level == SOL_IPV6 && cm->cmsg_type == IPV6_HOPLIMIT)
-	    )  ttl = *((int *) CMSG_DATA (cm));
+	if (af == AF_INET) {
+	    if (setsockopt (sk, SOL_IP, IP_RECVERR, &val, sizeof (val)) < 0)
+		    error ("setsockopt IP_RECVERR");
+	}
+	else if (af == AF_INET6) {
+	    if (setsockopt (sk, SOL_IPV6, IPV6_RECVERR, &val, sizeof (val)) < 0)
+		    error ("setsockopt IPV6_RECVERR");
+	}
+}
+
+
+void set_ttl (int sk, int ttl) {
+
+	if (af == AF_INET) {
+	    if (setsockopt (sk, SOL_IP, IP_TTL, &ttl, sizeof (ttl)) < 0)
+		    error ("setsockopt IP_TTL");
+	}
+	else if (af == AF_INET6) {
+	    if (setsockopt (sk, SOL_IPV6, IPV6_UNICAST_HOPS,
+						&ttl, sizeof (ttl)) < 0
+	    )  error ("setsockopt IPV6_UNICAST_HOPS");
+	}
+}
+
+
+int do_send (int sk, const void *data, size_t len, const sockaddr_any *addr) {
+	int res;
+
+	if (!addr || raw_can_connect ())
+		res = send (sk, data, len, 0);
+	else
+	    res = sendto (sk, data, len, 0, &addr->sa, sizeof (*addr));
+
+	if (res < 0) {
+	    if (errno == ENOBUFS || errno == EAGAIN)
+		    return res;
+	    if (errno == EMSGSIZE)
+		    return 0;	/*  icmp will say more...  */
+	    error ("send");	/*  not recoverable   */
 	}
 
-	return ttl;
+	return res;
+}
+
+
+/*  There is a bug in the kernel before 2.6.25, which prevents icmp errors
+  to be obtained by MSG_ERRQUEUE for ipv6 connected raw sockets.
+*/
+static int can_connect = -1;
+
+#define VER(A,B,C,D)	(((((((A) << 8) | (B)) << 8) | (C)) << 8) | (D))
+
+int raw_can_connect (void) {
+
+	if (can_connect < 0) {
+
+	    if (af == AF_INET)
+		    can_connect = 1;
+	    else {	/*  AF_INET6   */
+		struct utsname uts;
+		int n;
+		unsigned int a, b, c, d = 0;
+
+		if (uname (&uts) < 0)
+			return 0;
+
+		n = sscanf (uts.release, "%u.%u.%u.%u", &a, &b, &c, &d);
+		can_connect = (n >= 3 && VER (a, b, c, d) >= VER (2, 6, 25, 0));
+	    }
+	}
+
+	return can_connect;
 }

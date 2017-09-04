@@ -1,29 +1,34 @@
-#  The name of this distributive (used in tarballs name bodies etc.).
+#  The name of this distributive (used for tarballs etc.).
 # *MUST* be defined here...
 #
 NAME = traceroute
 
-#  An additional non-`lib*'-matching subdirs to be treated as libdirs.
-# All `lib*' subdirs treated as LIBDIRS automatically.
+#  All subdir lists below are space-separated, with make's '%' wildcard
+# allowed. Default value is shown in commented out example.
 #
-#LIBDIRS =
 
-#  A list of libdirs with libraries to be placed last in LIBDIRS list,
+#  Subdirs to exclude anyway
+#
+#SKIPDIRS = tmp%
+
+#  Subdirs to be treated as libdirs.
+#
+#LIBDIRS = lib%
+
+#  An exact non-wildcard list of libdirs to be placed last in LIBDIRS list,
 # with the order specified. Useful, when some library should be
 # specified last because of referencing from another library...
 #
-LIBLAST = libsupp
+#LIBLAST = 
 
-#  An additional non-`include*'-matching and not libdir subdirs to be
-# treated as includedirs. All `include*' subdirs treated as INCLUDEDIRS
-# automatically. Also all LIBDIRS would be used as includedirs too.
+#  Subdirs to be treated as includedirs.
+# Also all LIBDIRS will be actually used for includes too.
 #
-#INCLUDEDIRS =
+#INCLUDEDIRS = include%
 
-#  An additional non-`mod*'-matching subdirs to be treated as moduledirs.
-# All `mod*' subdirs treated as MODDIRS automatically.
+#  Subdirs to be treated as moduledirs.
 #
-#MODDIRS =
+#MODDIRS = mod%
 
 #  Subdirs of executables which will use modules at run-time linking.
 #
@@ -31,11 +36,20 @@ LIBLAST = libsupp
 
 #  Subdirs of executables to be installed in `*/sbin' instead of `*/bin'.
 #
-#SBINUSERS = traceroute
+#SBINUSERS =
 
-#  A postinstall script. Use one line (`\' to continue, `;' to separate...).
-# For example: POSTINSTALL = chmod 04755 foo ; ln -s foo bar
+#  Subdirs to exclude from install
 #
-#POSTINSTALL = 
+SKIPINSTALL = test% libsupp
 
-override CFLAGS += -D_GNU_SOURCE
+
+#  A better way to alter the variables is to use "+=" or
+# "override VAR += value"
+#
+# CFLAGS +=
+# CPPFLAGS +=
+# LDFLAGS +=
+# LIBS +=
+
+CPPFLAGS += -D_GNU_SOURCE
+

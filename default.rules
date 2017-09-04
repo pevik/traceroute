@@ -1,9 +1,9 @@
 #
-#   Copyright (c) 2000, 2001	    Dmitry K. Butskoj
-#				    <buc@citadel.stu.neva.ru>
-#   License:  GPL/LGPL		
+#   Copyright (c) 2000, 2001, 2007	Dmitry Butskoy
+#					<buc@citadel.stu.neva.ru>
+#   License:  GPL v2 or any later
 #
-#   See COPYING/COPYING.LIB for the status of this software.
+#   See COPYING for the status of this software.
 #
 
 #
@@ -19,11 +19,11 @@ ifeq ($(path),../$(rul))
 srcdir = $(dir $(CURDIR))
 endif
 ifeq ($(path),../../$(rul))
-srcdir = $(dir $(dir $(CURDIR)))
-TARGET = .MODULE	# an ugly hack
+srcdir = $(dir $(patsubst %/,%,$(dir $(CURDIR))))
+TARGET = .MODULE
 endif
 ifeq ($(srcdir),)
-$(error Cannot find srcdir (where $(rul) exist))
+$(error Cannot find srcdir (where $(rul) exists))
 endif
 endif
 
@@ -39,12 +39,12 @@ include $(srcdir)/Make.rules
 #
 ifeq ($(filter $(TARGET),$(LIBDIRS)),$(TARGET))
 
-ifeq ($(shared),shared)
+ifeq ($(shared),yes)
 
 all: $(TARGET).so
 
 $(TARGET).so: $(OBJS)
-	$(SHARCC) -shared -o $@ -Wl,-soname -Wl,$@ -Wl,-rpath -Wl,$(libdir) $(OBJS) $(SHARLIBS)
+	$(CC) -shared -o $@ -Wl,-soname -Wl,$@ $(OBJS)
 
 else
 
@@ -56,6 +56,10 @@ $(TARGET).a: $(OBJS)
 	$(RANLIB) $@
 
 endif
+
+install_what = $(wildcard $(TARGET).so $(TARGET).a)
+install_dir = $(libdir)
+install_includes = $(wildcard *.h)
 
 cross_stamp_file = $(wildcard .cross:*)
 ifeq ($(cross_stamp_file),)
@@ -82,26 +86,25 @@ endif
 #
 ifeq ($(filter $(TARGET),$(MODDIRS)),$(TARGET))
 
-modules = $(filter-out tmp%, $(patsubst %/,%,$(wildcard */)))
+modules = $(filter-out $(SKIPDIRS), $(patsubst %/,%,$(wildcard */)))
 
 .PHONY: $(modules)
 
-all: $(modules)
+what = all
+depend: what = depend
+clean: what = clean
+
+all depend clean: $(modules)
 
 $(modules): mkfile = $(if $(wildcard $@/Makefile),,-f $(srcdir)/default.rules)
 
 $(modules): force
-	@$(MAKE) $(mkfile) srcdir=$(srcdir) -C $@ all TARGET=.MODULE MODULE=$@
+	@$(MAKE) $(mkfile) -C $@ $(what) TARGET=.MODULE MODULE=$@
 
 force:
 
-depend syntax:
-	@for i in $(modules) ;\
-	do		\
-	    mkfile= ;\
-	    [ -r $$i/Makefile ] || mkfile="-f $(srcdir)/default.rules" ;\
-	    $(MAKE) $$mkfile srcdir=$(srcdir) -C $$i $@ ;\
-	done
+install_what = $(wildcard *.so)
+install_dir = $(libexecdir)
 
 endif
 
@@ -115,12 +118,12 @@ ifndef MODULE
 MODULE = $(notdir $(CURDIR))
 endif
 
-ifeq ($(shared),shared)
+ifeq ($(shared),yes)
 
 all: ../$(MODULE).so
 
 ../$(MODULE).so: $(OBJS) $(LIBDEPS)
-	$(SHARCC) -shared -o $@ -Wl,-rpath -Wl,$(libdir) $(OBJS) $(LIBS)
+	$(CC) -shared -o $@ $(OBJS) $(LIBS)
 
 else
 
@@ -141,26 +144,50 @@ ifeq ($(filter $(TARGET),$(EXEDIRS)),$(TARGET))
 
 ifeq ($(filter $(TARGET),$(MODUSERS)),$(TARGET))
 MOD_OBJS = $(wildcard $(foreach dir,$(MODDIRS),$(srcdir)/$(dir)/*.o))
-ifeq ($(shared),shared)
+ifeq ($(shared),yes)
 override LDFLAGS := -rdynamic $(LDFLAGS)
 endif
+install_includes= $(wildcard $(foreach dir,$(INCLUDEDIRS),$(srcdir)/$(dir)/*.h))
+install_includes:= $(filter-out $(srcdir)/include/version.h,$(install_includes))
 else
 MOD_OBJS =
-endif
-
-ifeq ($(shared),shared)
-ifneq ($(LIBDIRS),)
-override LDFLAGS += -Wl,-rpath -Wl,$(libdir) 
-endif
-link := $(SHARCC)
-else
-link := $(CC)
 endif
 
 all: $(TARGET)
 
 $(TARGET): $(OBJS) $(MOD_OBJS) $(LIBDEPS)
-	$(link) $(LDFLAGS) -o $@ $(OBJS) $(MOD_OBJS) $(LIBS)
+	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(MOD_OBJS) $(LIBS)
+
+install_what = $(wildcard $(TARGET))
+install_dir = $(if $(filter $(TARGET),$(SBINUSERS)),$(sbindir),$(bindir))
 
 endif
 
+
+#
+#	Install  stuff
+#
+
+install_manuals = $(wildcard *.[0-9] *.[0-9]?)
+
+
+install:
+ifneq ($(install_dir),)
+	@mkdir -p $(DESTDIR)$(install_dir)
+endif
+ifneq ($(install_what),)
+	$(INSTALL) $(install_what) $(DESTDIR)$(install_dir)
+endif
+ifneq ($(install_includes),)
+	@mkdir -p $(DESTDIR)$(includedir)
+	$(INSTALL) $(install_includes) $(DESTDIR)$(includedir)
+endif
+	@true
+ifneq ($(install_manuals),)
+define inst_man
+@mkdir -p $(DESTDIR)$(mandir)/man$(patsubst .%,%,$(suffix $(1)))
+	cp -f $(1) $(DESTDIR)$(mandir)/man$(patsubst .%,%,$(suffix $(1)))
+	
+endef
+	$(foreach man,$(install_manuals),$(call inst_man,$(man)))
+endif

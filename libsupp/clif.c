@@ -1,7 +1,7 @@
 /*
-    Copyright (c) 2000, 2003	    Dmitry K. Butskoj
-				    <buc@citadel.stu.neva.ru>
-    License:  LGPL		
+    Copyright (c)  2000, 2003		Dmitry Butskoy
+					<buc@citadel.stu.neva.ru>
+    License:  LGPL v2.1 or any later
 
     See COPYING.LIB for the status of this software.
 */

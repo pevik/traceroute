@@ -1,10 +1,10 @@
 #!/bin/sh
 #
-#   Copyright (c) 1998, 2001	    Dmitry K. Butskoj
-#				    <buc@citadel.stu.neva.ru>
-#   License:  GPL/LGPL		
+#   Copyright (c)  2000, 2001		Dmitry Butskoy
+#					<buc@citadel.stu.neva.ru>
+#   License:  GPL v2 or any later
 #
-#   See COPYING/COPYING.LIB for the status of this software.
+#   See COPYING for the status of this software.
 #
 
 #

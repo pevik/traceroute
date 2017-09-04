@@ -1,29 +1,19 @@
 /*
-    Copyright (c)  2006		    Dmitry K. Butskoy
-				    <buc@citadel.stu.neva.ru>
-    License:  GPL		
+    Copyright (c)  2006, 2007		Dmitry Butskoy
+					<buc@citadel.stu.neva.ru>
+    License:  GPL v2 or any later
 
     See COPYING for the status of this software.
 */
 
 #include <stdio.h>
+#include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
 #include <unistd.h>
-#include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/poll.h>
-#include <time.h>
-#include <sys/time.h>
-#include <netinet/icmp6.h>
-#include <netinet/ip_icmp.h>
 #include <netinet/in.h>
-#include <arpa/inet.h>
-#include <net/if.h>
 #include <netdb.h>
-#include <errno.h>
-#include <linux/types.h>
-#include <linux/errqueue.h>
 
 #include "traceroute.h"
 
@@ -104,7 +94,7 @@ const char *get_as_path (const char *query) {
 
 		while (isspace (*p))  p++;
 		as = p;
-		while (!isspace (*p))  p++;
+		while (*p && !isspace (*p))  p++;
 		*p = '\0';
 
 		if (prefix > best_prefix) {

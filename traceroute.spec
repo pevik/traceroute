@@ -1,11 +1,11 @@
 Summary: Traces the route taken by packets over an IPv4/IPv6 network
 Name: traceroute
-Version: 2.0.3
+Version: 2.0.12
 Release: 1%{?dist}
 Group: Applications/Internet
-License: GPL
-URL:  http://dmitry.butskoy.name/traceroute
-Source0: http://www.odu.neva.ru/buc/traceroute/traceroute-%{version}.tar.gz
+License: GPLv2+
+URL:  http://traceroute.sourceforge.net
+Source0: http://dl.sourceforge.net/traceroute/traceroute-%{version}.tar.gz
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 
@@ -26,7 +26,7 @@ problems.
 
 
 %build
-make %{?_smp_mflags} CFLAGS="$RPM_OPT_FLAGS"
+make %{?_smp_mflags} CFLAGS="$RPM_OPT_FLAGS" LDFLAGS=""
 
 
 %install
@@ -36,11 +36,10 @@ install -d $RPM_BUILD_ROOT/bin
 install -m755 traceroute/traceroute $RPM_BUILD_ROOT/bin
 pushd $RPM_BUILD_ROOT/bin
 ln -s traceroute traceroute6
-ln -s traceroute tracert
 popd
 
 install -d $RPM_BUILD_ROOT%{_mandir}/man8
-install -p -m644 traceroute.8 $RPM_BUILD_ROOT%{_mandir}/man8
+install -p -m644 traceroute/traceroute.8 $RPM_BUILD_ROOT%{_mandir}/man8
 ln -s traceroute.8 $RPM_BUILD_ROOT%{_mandir}/man8/traceroute6.8
 
 

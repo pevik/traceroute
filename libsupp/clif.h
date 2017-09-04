@@ -1,10 +1,14 @@
 /*
-    Copyright (c) 2000, 2003	    Dmitry K. Butskoj
-				    <buc@citadel.stu.neva.ru>
-    License:  LGPL		
+    Copyright (c)  2000, 2003		Dmitry Butskoy
+					<buc@citadel.stu.neva.ru>
+    License:  LGPL v2.1 or any later
 
     See COPYING.LIB for the status of this software.
 */
+
+#ifndef _CLIF_H
+#define _CLIF_H
+
 
 typedef struct CLIF_option_struct CLIF_option;
 struct CLIF_option_struct {
@@ -113,3 +117,5 @@ extern int CLIF_arg_func (CLIF_argument *argm, char *arg, int index);
 #define CLIF_VERSION_OPTION(STR)  \
 	{ "V", "version", 0, "Print version info and exit",	\
 		CLIF_version_handler, STR, 0, CLIF_EXTRA | CLIF_EXIT }
+
+#endif	/*  _CLIF_H   */
