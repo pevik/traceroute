@@ -1,3 +1,18 @@
+2016-02-15  Dmitry Butskoy  <Dmitry@Butskoy.name> - 2.0.22
+
+	*  Some portability fixing and improvements (Felix Janda)
+
+	*  Require clear numbers for options and arguments (Sergey Salnikov)
+
+	*  Drop compilation date from the version string (Debian #774365)
+
+	*  New tcp module option `reuse', which utilize SO_REUSEADDR
+	   to reuse local port numbers for the huge workloads (Richard Sheehan)
+
+	*  Avoid poll(2) call with spurious zero timeout in some rare cases
+	   by rounding the value properly using ceil(3)
+
+
 2014-11-12  Dmitry Butskoy  <Dmitry@Butskoy.name> - 2.0.21
 
 	*  Fix `--mtu' and `-F' working on kernels >= 3.13

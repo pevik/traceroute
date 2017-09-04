@@ -8,8 +8,9 @@
 
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/poll.h>
+#include <poll.h>
 #include <errno.h>
+#include <math.h>
 
 #include "traceroute.h"
 
@@ -69,7 +70,7 @@ void do_poll (double timeout, void (*callback) (int fd, int revents)) {
 
 	if (!nfds)  return;
 
-	n = poll (pfd, nfds, timeout * 1000);
+	n = poll (pfd, nfds, ceil(timeout * 1000));
 	if (n < 0) {
 	    if (errno == EINTR)  return;
 	    error ("poll");

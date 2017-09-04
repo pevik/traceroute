@@ -12,7 +12,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/socket.h>
-#include <sys/poll.h>
+#include <poll.h>
 #include <netinet/icmp6.h>
 #include <netinet/ip_icmp.h>
 #include <netinet/in.h>
@@ -52,6 +52,14 @@
 #define IPV6_PMTUDISC_PROBE 3
 #endif
 
+#ifndef AI_IDN
+#define AI_IDN	0
+#endif
+
+#ifndef NI_IDN
+#define NI_IDN	0
+#endif
+
 
 #define MAX_HOPS	255
 #define MAX_PROBES	10
@@ -72,7 +80,7 @@
 
 
 static char version_string[] = "Modern traceroute for Linux, "
-				"version " _TEXT(VERSION) ", " __DATE__
+				"version " _TEXT(VERSION)
 				"\nCopyright (c) 2008  Dmitry Butskoy, "
 				"  License: GPL v2 or any later";
 static int debug = 0;
@@ -325,7 +333,7 @@ static void init_ip_options (void) {
 	    rth->ip6r_type = ipv6_rthdr_type;
 	    rth->ip6r_segleft = num_gateways;
 
-	    *((u_int32_t *) (rth + 1)) = 0;
+	    *((uint32_t *) (rth + 1)) = 0;
 
 	    in6 = (struct in6_addr *) (rtbuf + 8);
 	    for (i = 0; i < num_gateways; i++)
@@ -606,7 +614,7 @@ int main (int argc, char *argv[]) {
 		    htonl (((tos & 0xff) << 20) | (flow_label & 0x000fffff));
 
 	if (src_port) {
-	    src_addr.sin.sin_port = htons ((u_int16_t) src_port);
+	    src_addr.sin.sin_port = htons ((uint16_t) src_port);
 	    src_addr.sa.sa_family = af;
 	}
 
