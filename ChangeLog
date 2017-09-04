@@ -1,3 +1,10 @@
+2014-11-12  Dmitry Butskoy  <Dmitry@Butskoy.name> - 2.0.21
+
+	*  Fix `--mtu' and `-F' working on kernels >= 3.13
+
+	*  Some manual page improving (Christopher Mann)
+
+
 2014-06-14  Dmitry Butskoy  <Dmitry@Butskoy.name> - 2.0.20
 
 	*  Describe all complementary long options in the man page (Jan Synacek)

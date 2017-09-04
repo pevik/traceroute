@@ -1252,6 +1252,19 @@ void parse_icmp_res (probe *pb, int type, int code, int info) {
 }
 
 
+static void parse_local_res (probe *pb, int ee_errno, int info) {
+
+	if (ee_errno == EMSGSIZE && info != 0) {
+	    snprintf (pb->err_str, sizeof(pb->err_str)-1, "!F-%d", info);
+	    pb->final = 1;
+	    return;
+	}
+
+	errno = ee_errno;
+	error ("local recverr");
+}
+
+
 void probe_done (probe *pb) {
 
 	if (pb->sk) {
@@ -1321,7 +1334,17 @@ void recv_reply (int sk, int err, check_reply_t check_reply) {
 
 
 	pb = check_reply (sk, err, &from, bufp, n);
-	if (!pb)  return;
+	if (!pb) {
+
+	    /*  for `frag needed' case at the local host,
+		kernel >= 3.13 sends local error (no more icmp)
+	    */
+	    if (!n && err && dontfrag) {
+		pb = &probes[(first_hop - 1) * probes_per_hop];
+		if (pb->done)  return;
+	    } else
+		return;
+	}
 
 
 	/*  Parse CMSG stuff   */
@@ -1345,11 +1368,14 @@ void recv_reply (int sk, int err, check_reply_t check_reply) {
 
 		    ee = (struct sock_extended_err *) ptr;
 
-		    if (ee->ee_origin != SO_EE_ORIGIN_ICMP)
-			    ee = NULL;
+		    if (ee->ee_origin != SO_EE_ORIGIN_ICMP &&
+			ee->ee_origin != SO_EE_ORIGIN_LOCAL
+		    )  return;
+
 		    /*  dgram icmp sockets might return extra things...  */
-		    else if (ee->ee_type == ICMP_SOURCE_QUENCH ||
-			     ee->ee_type == ICMP_REDIRECT
+		    if (ee->ee_origin == SO_EE_ORIGIN_ICMP &&
+			(ee->ee_type == ICMP_SOURCE_QUENCH ||
+			 ee->ee_type == ICMP_REDIRECT)
 		    )  return;
 		}
 	    }
@@ -1361,8 +1387,9 @@ void recv_reply (int sk, int err, check_reply_t check_reply) {
 
 		    ee = (struct sock_extended_err *) ptr;
 
-		    if (ee->ee_origin != SO_EE_ORIGIN_ICMP6)
-			    ee = NULL;
+		    if (ee->ee_origin != SO_EE_ORIGIN_ICMP6 &&
+			ee->ee_origin != SO_EE_ORIGIN_LOCAL
+		    )  return;
 		}
 	    }
 	}
@@ -1378,10 +1405,13 @@ void recv_reply (int sk, int err, check_reply_t check_reply) {
 
 	pb->recv_ttl = recv_ttl;
 
-	if (ee) {
+	if (ee && ee->ee_origin != SO_EE_ORIGIN_LOCAL) {    /*  icmp or icmp6   */
 	    memcpy (&pb->res, SO_EE_OFFENDER (ee), sizeof(pb->res));
 	    parse_icmp_res (pb, ee->ee_type, ee->ee_code, ee->ee_info);
 	}
+
+	if (ee && ee->ee_origin == SO_EE_ORIGIN_LOCAL)
+		parse_local_res (pb, ee->ee_errno, ee->ee_info);
 
 
 	if (ee &&
@@ -1529,7 +1559,7 @@ int do_send (int sk, const void *data, size_t len, const sockaddr_any *addr) {
 	    if (errno == ENOBUFS || errno == EAGAIN)
 		    return res;
 	    if (errno == EMSGSIZE)
-		    return 0;	/*  icmp will say more...  */
+		    return 0;	/*  recverr will say more...  */
 	    error ("send");	/*  not recoverable   */
 	}
 
