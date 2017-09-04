@@ -51,11 +51,61 @@ static struct tcphdr *th = NULL;
 static int flags = 0;	    /*  & 0xff == tcp_flags ...  */
 static int sysctl = 0;
 static unsigned int mss = 0;
+static int info = 0;
 
-#define FL_FLAGS	0x100
-#define FL_SACK		0x200
-#define FL_TSTAMP	0x400
-#define FL_WSCALE	0x800
+#define FL_FLAGS	0x0100
+#define FL_ECN		0x0200
+#define FL_SACK		0x0400
+#define FL_TSTAMP	0x0800
+#define FL_WSCALE	0x1000
+
+
+static struct {
+	const char *name;
+	unsigned int flag;
+} tcp_flags[] = {
+	{ "fin", TH_FIN },
+	{ "syn", TH_SYN },
+	{ "rst", TH_RST },
+	{ "psh", TH_PSH },
+	{ "ack", TH_ACK },
+	{ "urg", TH_URG },
+	{ "ece", TH_ECE },
+	{ "cwr", TH_CWR },
+};
+
+static char *names_by_flags (unsigned int flags) {
+	int i;
+	char str[64];	/*  enough...  */
+	char *curr = str;
+	char *end = str + sizeof (str) / sizeof (*str);
+
+	for (i = 0; i < sizeof (tcp_flags) / sizeof (*tcp_flags); i++) {
+	    const char *p;
+
+	    if (!(flags & tcp_flags[i].flag))  continue;
+
+	    if (curr > str && curr < end)  *curr++ = ',';
+	    for (p = tcp_flags[i].name; *p && curr < end; *curr++ = *p++) ;
+	}
+
+	*curr = '\0';
+
+	return  strdup (str);
+}
+
+static int set_tcp_flag (CLIF_option *optn, char *arg) {
+	int i;
+
+	for (i = 0; i < sizeof (tcp_flags) / sizeof (*tcp_flags); i++) {
+	    if (!strcmp (optn->long_opt, tcp_flags[i].name)) {
+		    flags |= tcp_flags[i].flag;
+		    return 0;
+	    }
+	}
+
+	return -1;
+}
 
 static int set_tcp_flags (CLIF_option *optn, char *arg) {
 	char *q;
@@ -64,7 +114,7 @@ static int set_tcp_flags (CLIF_option *optn, char *arg) {
 	value = strtoul (arg, &q, 0);
 	if (q == arg)  return -1;
 
-	flags = (value & 0xff) | FL_FLAGS;
+	flags = (flags & ~0xff) | (value & 0xff) | FL_FLAGS;
 	return 0;
 }
 
@@ -77,21 +127,19 @@ static int set_flag (CLIF_option *optn, char *arg) {
 
 static CLIF_option tcp_options[] = {
 	{ 0, "syn", 0, "Set tcp flag SYN (default if no other "
-			"tcp flags specified)",
-				set_flag, (void *) TH_SYN, 0, 0 },
-	{ 0, "ack", 0, "Set tcp flag ACK,",
-				set_flag, (void *) TH_ACK, 0, 0 },
-	{ 0, "fin", 0, "FIN,", set_flag, (void *) TH_FIN, 0, 0 },
-	{ 0, "rst", 0, "RST,", set_flag, (void *) TH_RST, 0, 0 },
-	{ 0, "psh", 0, "PSH,", set_flag, (void *) TH_PSH, 0, 0 },
-	{ 0, "urg", 0, "URG,", set_flag, (void *) TH_URG, 0, 0 },
-	{ 0, "ece", 0, "ECE,", set_flag, (void *) TH_ECE, 0, 0 },
-	{ 0, "cwr", 0, "CWR", set_flag, (void *) TH_CWR, 0, 0 },
+			"tcp flags specified)", set_tcp_flag, 0, 0, 0 },
+	{ 0, "ack", 0, "Set tcp flag ACK,", set_tcp_flag, 0, 0, 0 },
+	{ 0, "fin", 0, "FIN,", set_tcp_flag, 0, 0, 0 },
+	{ 0, "rst", 0, "RST,", set_tcp_flag, 0, 0, 0 },
+	{ 0, "psh", 0, "PSH,", set_tcp_flag, 0, 0, 0 },
+	{ 0, "urg", 0, "URG,", set_tcp_flag, 0, 0, 0 },
+	{ 0, "ece", 0, "ECE,", set_tcp_flag, 0, 0, 0 },
+	{ 0, "cwr", 0, "CWR", set_tcp_flag, 0, 0, 0 },
 	{ 0, "flags", "NUM", "Set tcp flags exactly to value %s",
 				set_tcp_flags, 0, 0, CLIF_ABBREV },
 	{ 0, "ecn", 0, "Send syn packet with tcp flags ECE and CWR "
 			"(for Explicit Congestion Notification, rfc3168)",
-			set_flag, (void *) (TH_SYN | TH_ECE | TH_CWR), 0, 0 },
+				set_flag, (void *) FL_ECN, 0, 0 },
 	{ 0, "sack", 0, "Use sack option for tcp",
 				set_flag, (void *) FL_SACK, 0, 0 },
 	{ 0, "timestamps", 0, "Use timestamps option for tcp",
@@ -104,6 +152,10 @@ static CLIF_option tcp_options[] = {
 				CLIF_set_flag, &sysctl, 0, 0 },
 	{ 0, "mss", "NUM", "Use value of %s for maxseg tcp option (when syn)",
 				CLIF_set_uint, &mss, 0, 0 },
+	{ 0, "info", 0, "Print tcp flags of final tcp replies when target "
+			"host is reached. Useful to determine whether "
+			"an application listens the port etc.",
+				CLIF_set_flag, &info, 0, 0 },
 	CLIF_END_OPTION
 };
 
@@ -123,8 +175,11 @@ static int check_sysctl (const char *name) {
 	res = read (fd, &ch, sizeof (ch));
 	close (fd);
 
-	if (res == sizeof (ch))
-		return  (ch == '0') ? 0 : 1;
+	if (res != sizeof (ch))
+		return 0;
+
+	/*  since kernel 2.6.31 "tcp_ecn" can have value of '2'...  */
+	if (ch == '1')  return 1;
 
 	return 0;
 }
@@ -192,16 +247,17 @@ static int tcp_init (const sockaddr_any *dest,
 
 	if (!flags)  sysctl = 1;
 
-	if (!(flags & (FL_FLAGS | 0xff))) {	/*  no any tcp flag set   */
-	    flags |= TH_SYN;
-	    if (sysctl && check_sysctl ("ecn"))
-		    flags |= TH_ECE | TH_CWR;
-	}
-
 	if (sysctl) {
+	    if (check_sysctl ("ecn"))  flags |= FL_ECN;
 	    if (check_sysctl ("sack"))  flags |= FL_SACK;
 	    if (check_sysctl ("timestamps"))  flags |= FL_TSTAMP;
 	    if (check_sysctl ("window_scaling"))  flags |= FL_WSCALE;
+	}
+
+	if (!(flags & (FL_FLAGS | 0xff))) {	/*  no any tcp flag set   */
+	    flags |= TH_SYN;
+	    if (flags & FL_ECN)
+		    flags |= TH_ECE | TH_CWR;
 	}
 
 
@@ -405,7 +461,13 @@ static probe *tcp_check_reply (int sk, int err, sockaddr_any *from,
 	if (!pb)  return NULL;
 
 
-	if (!err)  pb->final = 1;
+	if (!err) {
+
+	    pb->final = 1;
+
+	    if (info)
+		pb->ext = names_by_flags (TH_FLAGS(tcp));
+	}
 
 	return pb;
 }

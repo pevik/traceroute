@@ -29,11 +29,27 @@ static size_t *length_p;
 static int icmp_sk = -1;
 static int last_ttl = 0;
 
+static int raw = 0;
+static int dgram = 0;
+
+
+static CLIF_option icmp_options[] = {
+        { 0, "raw", 0, "Use raw sockets way only. Default is try this way "
+			"first (probably not allowed for unprivileged users), "
+			"then try dgram",
+				CLIF_set_flag, &raw, 0, CLIF_EXCL },
+        { 0, "dgram", 0, "Use dgram sockets way only. May be not implemented "
+			"by old kernels or restricted by sysadmins",
+				CLIF_set_flag, &dgram, 0, CLIF_EXCL },
+        CLIF_END_OPTION
+};
+
 
 static int icmp_init (const sockaddr_any *dest,
 			    unsigned int port_seq, size_t *packet_len_p) {
 	int i;
 	int af = dest->sa.sa_family;
+	int protocol;
 
 	dest_addr = *dest;
 	dest_addr.sin.sin_port = 0;
@@ -51,10 +67,27 @@ static int icmp_init (const sockaddr_any *dest,
                 data[i] = 0x40 + (i & 0x3f);
 
 
-	icmp_sk = socket (af, SOCK_RAW, (af == AF_INET) ? IPPROTO_ICMP
-							: IPPROTO_ICMPV6);
-	if (icmp_sk < 0)
-		error_or_perm ("socket");
+	protocol = (af == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6;
+
+	if (!raw) {
+	    icmp_sk = socket (af, SOCK_DGRAM, protocol);
+	    if (icmp_sk < 0 && dgram)
+		    error ("socket");
+	}
+
+	if (!dgram) {
+	    int raw_sk = socket (af, SOCK_RAW, protocol);
+	    if (raw_sk < 0) {
+		if (raw || icmp_sk < 0)
+			error_or_perm ("socket");
+		dgram = 1;
+	    } else {
+		/*  prefer the traditional "raw" way when possible   */
+		close (icmp_sk);
+		icmp_sk = raw_sk;
+	    }
+	}
+
 
 	tune_socket (icmp_sk);
 
@@ -66,9 +99,19 @@ static int icmp_init (const sockaddr_any *dest,
 	use_recverr (icmp_sk);
 
 
-	add_poll (icmp_sk, POLLIN | POLLERR);
+	if (dgram) {
+	    sockaddr_any addr;
+	    socklen_t len = sizeof (addr);
 
-	ident = getpid () & 0xffff;
+	    if (getsockname (icmp_sk, &addr.sa, &len) < 0)
+		    error ("getsockname");
+	    ident = ntohs (addr.sin.sin_port);	/*  both IPv4 and IPv6   */
+
+	} else
+	    ident = getpid () & 0xffff;
+
+
+	add_poll (icmp_sk, POLLIN | POLLERR);
  
 	return 0;
 }
@@ -198,6 +241,7 @@ static tr_module icmp_ops = {
 	.send_probe = icmp_send_probe,
 	.recv_probe = icmp_recv_probe,
 	.expire_probe = icmp_expire_probe,
+	.options = icmp_options,
 };
 
 TR_MODULE (icmp_ops);

@@ -1,3 +1,47 @@
+2011-08-16  Dmitry Butskoy  <Dmitry@Butskoy.name> - 2.0.18
+
+	*  Handle new dgram icmp sockets ("echo ping sockets"),
+	   appeared in kernel 3.0 .
+
+	   Now unprivileged users may perform ICMP tracerouting
+	   without any special rights of the executable
+	   (neither setuid bits nor cap_net_raw settings).
+	   It is allowed if any group of a user matches sysctl range
+	   of "net/ipv4/ping_group_range".
+
+	   The support for dgram icmp way (and whether it is allowed)
+	   is auto-detected at runtime. First, the traditional raw socket
+	   is tried (for full compatibility reasons), then new dgram
+	   socket as a fallback.
+	   The icmp module now has two additional options "raw" and "dgram",
+	   which cause to try one particular way only.
+
+	   Note, that there is no IPv6 implementation for dgram icmp sockets
+	   in kernels 3.0 yet, but new traceroute is ready for it anyway.
+
+	*  New tcp module option `info' ("-T -O info"),
+	   which prints all tcp flags of tcp reply from the reached
+	   target host.
+
+	   The flags are shown comma-separated in the same place
+	   where icmp extensions is printed (ie. in `<>' brackets)
+
+	   This feature is utilized by tcptraceroute wrapper now,
+	   and allow it to be completely functional replacement
+	   of the original tcptraceroute.
+
+	*  Fix determination of system-wide ECN setings for tcp module.
+
+	   Since the kernel 2.6.31 the default sysctl net/ipv4/tcp_ecn
+	   was changed from zero to '2', whereas the actual value
+	   for ecn to be set is still '1'
+
+	*  Allow different packet sizes for `--mtu'.
+	   Suport `-l' option for tracepath wrapper.
+
+	*  Some code and manual cleanups
+
+
 2010-12-14  Dmitry Butskoy  <Dmitry@Butskoy.name> - 2.0.17
 
 	*  Adapt code to make possible the use of Linux capabilities

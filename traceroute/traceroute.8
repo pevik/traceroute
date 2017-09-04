@@ -108,7 +108,7 @@ by firewalls just as a start of allowed type of a network session).
 Print help info and exit.
 .TP
 .BR \-4 ", " \-6
-Explicitly force IPv4 or IPv6 traceouting. By default, the program
+Explicitly force IPv4 or IPv6 tracerouting. By default, the program
 will try to resolve the name given, and choose the appropriate
 protocol automatically. If resolving a host name returns both
 IPv4 and IPv6 addresses,
@@ -194,7 +194,7 @@ For UDP tracing, specifies the destination port base
 .I traceroute
 will use (the destination port number will be incremented by each probe).
 .br
-For ICMP tracing, specifies the initial icmp sequence value (incremented
+For ICMP tracing, specifies the initial ICMP sequence value (incremented
 by each probe too).
 .br
 For TCP specifies just the (constant) destination
@@ -203,7 +203,7 @@ port to connect.
 .BI \-t " tos
 For IPv4, set the Type of Service (TOS) and Precedence value. Useful values
 are 16 (low delay) and 8 (high throughput). Note that in order to use
-some TOS precendence values, you have to be super user.
+some TOS precedence values, you have to be super user.
 .br
 For IPv6, set the Traffic Control value.
 .TP
@@ -228,7 +228,7 @@ By default, the address of the outgoing interface is used.
 Minimal time interval between probes (default 0).
 If the value is more than 10, then it specifies a number in milliseconds,
 else it is a number of seconds (float point values allowed too).
-Useful when some routers use rate-limit for icmp messages.
+Useful when some routers use rate-limit for ICMP messages.
 .TP
 .BI \-e
 Show ICMP extensions (rfc4884). The general form is
@@ -350,6 +350,26 @@ Most usual method for now, which uses icmp echo packets for probes.
 .br
 If you can ping(8) the destination host, icmp tracerouting is applicable
 as well.
+.P
+This method may be allowed for unprivileged users
+since the kernel 3.0 (IPv4 only), which supports new
+.I dgram icmp
+(or
+.IR \fR"\fIping\fR")
+sockets. To allow such sockets, sysadmin should provide
+.I net/ipv4/ping_group_range
+sysctl range to match any group of the user.
+.br
+Options:
+.TP
+.B raw
+Use only raw sockets (the traditional way).
+.br
+This way is tried first by default (for compatibility reasons),
+then new dgram icmp sockets as fallback.
+.TP
+.B dgram
+Use only dgram icmp sockets.
 .SS tcp \  \  \  \ \-T
 Well-known modern method, intended to bypass firewalls.
 .br
@@ -388,7 +408,7 @@ Sets the flags field in the tcp header exactly to
 .TP
 .B ecn
 Send syn packet with tcp flags ECE and CWR (for Explicit Congestion
-Notification, rfc3168)
+Notification, rfc3168).
 .TP
 .B sack,timestamps,window_scaling
 Use the corresponding tcp header option in the outgoing probe packet.
@@ -405,6 +425,11 @@ Use value of
 .I num
 for maxseg tcp header option (when
 .BR syn ).
+.TP
+.B info
+Print tcp flags of final tcp replies when the target host is reached.
+Allows to determine whether an application listens the port and
+other useful things.
 .P
 Default options is
 .BR syn,sysctl .
@@ -483,5 +508,5 @@ command (IPv4, and for nearest 8 hops only).
 .SH SEE ALSO
 .BR ping (8),
 .BR ping6 (8),
-.BR tcpdump(8),
+.BR tcpdump (8),
 .BR netstat (8)
