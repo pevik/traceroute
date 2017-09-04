@@ -184,10 +184,10 @@ ifneq ($(install_includes),)
 endif
 	@true
 ifneq ($(install_manuals),)
+	$(foreach man,$(install_manuals),$(call inst_man,$(man)))
 define inst_man
 @mkdir -p $(DESTDIR)$(mandir)/man$(patsubst .%,%,$(suffix $(1)))
 	cp -f $(1) $(DESTDIR)$(mandir)/man$(patsubst .%,%,$(suffix $(1)))
 	
 endef
-	$(foreach man,$(install_manuals),$(call inst_man,$(man)))
 endif

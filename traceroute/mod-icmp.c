@@ -54,7 +54,7 @@ static int icmp_init (const sockaddr_any *dest,
 	icmp_sk = socket (af, SOCK_RAW, (af == AF_INET) ? IPPROTO_ICMP
 							: IPPROTO_ICMPV6);
 	if (icmp_sk < 0)
-		error ("socket");
+		error_or_perm ("socket");
 
 	tune_socket (icmp_sk);
 
@@ -198,7 +198,6 @@ static tr_module icmp_ops = {
 	.send_probe = icmp_send_probe,
 	.recv_probe = icmp_recv_probe,
 	.expire_probe = icmp_expire_probe,
-	.user = 0,
 };
 
 TR_MODULE (icmp_ops);

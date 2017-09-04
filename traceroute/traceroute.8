@@ -63,7 +63,7 @@ round trip time of each probe. The address can be followed by additional
 information when requested. If the probe answers come from
 different gateways, the address of each responding system will
 be printed.  If there is no response within a 5.0 seconds (default),
-an "*" is printed for that probe.
+an "*" (asterisk) is printed for that probe.
 .PP
 After the trip time, some additional annotation can be printed:
 .BR !H ,
@@ -155,9 +155,16 @@ Specifies with what TTL to start. Defaults to 1.
 Tells traceroute to add an IP source routing option to the outgoing
 packet that tells the network to route the packet through the
 specified
-.IR gateway .
-Not very useful, because most routers have disabled source routing
-for security reasons.
+.IR gateway
+(most routers have disabled source routing for security reasons).
+In general, several
+.IR gateway\fR's
+is allowed (comma separated). For IPv6, the form of
+.IR num\fB,\fIaddr\fB,\fIaddr...
+is allowed, where
+.IR num
+is a route header type (default is type 2). Note the type 0 route header
+is now deprecated (rfc5095).
 .TP
 .BI \-i " interface
 Specifies the interface through which
@@ -248,6 +255,9 @@ There is a couple of additional options, intended for an advanced usage
 Chooses the source port to use. Implies
 .BR \-N\ 1 .
 Normally source ports (if applicable) are chosen by the system.
+.TP
+.B \--fwmark\fR=\fImark
+Set the firewall mark for outgoing packets (since the Linux kernel 2.6.25).
 .TP
 .BI \-M " method
 Use specified method for traceroute operations. Default traditional udp method

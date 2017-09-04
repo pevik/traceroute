@@ -30,6 +30,13 @@ struct icmp_ext_object {
 #define MPLS_C_TYPE 1
 
 
+#define do_snprintf(CURR, END, FMT, ARGS...)	\
+	do {					\
+	    CURR += snprintf (CURR, END - CURR, (FMT), ## ARGS);\
+	    if (CURR > END)  CURR = END;			\
+	} while (0)
+
+
 static int try_extension (probe *pb, char *buf, size_t len) {
 	struct icmp_ext_header *iext = (struct icmp_ext_header *) buf;
 	char str[1024];
@@ -75,12 +82,12 @@ static int try_extension (probe *pb, char *buf, size_t len) {
 		n >= 1
 	    ) {    /*  people prefer MPLS to be parsed...  */
 
-		curr += snprintf (curr, end - curr, "MPLS:");
+		do_snprintf (curr, end, "MPLS:");
 
 		for (i = 0; i < n; i++, ui++) {
 		    u_int32_t mpls = ntohl (*ui);
 
-		    curr += snprintf (curr, end - curr, "%sL=%u,E=%u,S=%u,T=%u",
+		    do_snprintf (curr, end, "%sL=%u,E=%u,S=%u,T=%u",
 					i ? "/" : "",
 					mpls >> 12,
 					(mpls >> 9) & 0x7,
@@ -91,12 +98,10 @@ static int try_extension (probe *pb, char *buf, size_t len) {
 	    }
 	    else {	/*  common case...  */
 
-		curr += snprintf (curr, end - curr, "%u/%u:",
-						obj->class, obj->c_type);
+		do_snprintf (curr, end, "%u/%u:", obj->class, obj->c_type);
 
 		for (i = 0; i < n && curr < end; i++, ui++)
-		    curr += snprintf (curr, end - curr, "%s%08x",
-						i ? "," : "", ntohl (*ui));
+		    do_snprintf (curr, end, "%s%08x", i ? "," : "", ntohl(*ui));
 	    }
 
 	    buf += objlen;

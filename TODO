@@ -1,6 +1,6 @@
 * It seems that `-l' and `-g' will not work correctly together (IPv6).
 
-  Wait for "flow label" API to be appeared in glibc-kernheaders and
+  Wait for "flow label" API to be appeared in kernel-headers and
   think about it immediately after that... :)
 
 

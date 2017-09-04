@@ -23,7 +23,7 @@
 
 
 static sockaddr_any ra_addr = {{ 0, }, };
-static char ra_buf[256] = { 0, };
+static char ra_buf[512] = { 0, };
 
 
 const char *get_as_path (const char *query) {
@@ -31,7 +31,7 @@ const char *get_as_path (const char *query) {
 	FILE *fp;
 	char buf[1024];
 	int prefix = 0, best_prefix = 0;
-	size_t ra_buf_len = sizeof (ra_buf) - 1;
+	char *rb, *re = &ra_buf[sizeof (ra_buf) / sizeof (*ra_buf) - 1];
 
 
 	if (!ra_addr.sa.sa_family) {
@@ -66,6 +66,7 @@ const char *get_as_path (const char *query) {
 		goto  err_sk;
 
 	n = snprintf (buf, sizeof (buf), "%s\r\n", query);
+	if (n >= sizeof (buf))  goto err_sk;
 
 	if (write (sk, buf, n) < n)
 		goto err_sk;
@@ -74,7 +75,8 @@ const char *get_as_path (const char *query) {
 	if (!fp)  goto err_sk;
 
 
-	strncpy (ra_buf, "*", ra_buf_len);
+	strcpy (ra_buf, "*");
+	rb = ra_buf;
 
 	while (fgets (buf, sizeof (buf), fp) != NULL) {
 
@@ -100,14 +102,15 @@ const char *get_as_path (const char *query) {
 		if (prefix > best_prefix) {
 		    best_prefix = prefix;
 
-		    strncpy (ra_buf, as, ra_buf_len);
+		    rb = ra_buf;
+		    while (rb < re && (*rb++ = *as++)) ;
 		}
 		else if (prefix == best_prefix) {
 		    char *q = strstr (ra_buf, as);
 
 		    if (!q || (*(q += strlen (as)) != '\0' && *q != '/')) {
-			strncat (ra_buf, "/", ra_buf_len);
-			strncat (ra_buf, as, ra_buf_len);
+			if (rb > ra_buf)  rb[-1] = '/';
+			while (rb < re && (*rb++ = *as++)) ;
 		    }
 		}
 		/*  else just ignore it   */

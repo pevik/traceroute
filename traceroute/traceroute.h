@@ -42,8 +42,7 @@ struct tr_module_struct {
 	void (*recv_probe) (int fd, int revents);
 	void (*expire_probe) (probe *pb);
 	CLIF_option *options;	/*  per module options, if any   */
-	short user;	/*  whether applicable for non-root users   */
-	short one_per_time;	/*  no simultaneous probes   */
+	int one_per_time;	/*  no simultaneous probes   */
 	size_t header_len;	/*  additional header length (aka for udp)   */
 };
 typedef struct tr_module_struct tr_module;
@@ -59,6 +58,7 @@ typedef struct tr_module_struct tr_module;
 
 
 void error (const char *str) __attribute__((noreturn));
+void error_or_perm (const char *str) __attribute__((noreturn));
 
 double get_time (void);
 void tune_socket (int sk);

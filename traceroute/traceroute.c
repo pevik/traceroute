@@ -85,6 +85,7 @@ static char **gateways = NULL;
 static int num_gateways = 0;
 static unsigned char *rtbuf = NULL;
 static size_t rtbuf_len = 0;
+static unsigned int ipv6_rthdr_type = 2;	/*  IPV6_RTHDR_TYPE_2   */
 
 static size_t header_len = 0;
 static size_t data_len = 0;
@@ -97,6 +98,7 @@ static unsigned int dst_port_seq = 0;
 static unsigned int tos = 0;
 static unsigned int flow_label = 0;
 static int noroute = 0;
+static unsigned int fwmark = 0;
 static int packet_len = -1;
 static double wait_secs = DEF_WAIT_SECS;
 static double send_secs = DEF_SEND_SECS;
@@ -141,6 +143,14 @@ void error (const char *str) {
 	perror (str);
 
 	exit (1);
+}
+
+void error_or_perm (const char *str) {
+
+	if (errno == EPERM)
+		fprintf (stderr, "You have no enough privileges to use "
+				"this traceroute method.");
+	error (str);
 }
 
 
@@ -243,6 +253,20 @@ static void init_ip_options (void) {
 	if (!num_gateways)
 		return;
 
+	/*  check for TYPE,ADDR,ADDR... form   */
+	if (af == AF_INET6 && num_gateways > 1 && gateways[0]) {
+	    char *q;
+	    unsigned int value = strtoul (gateways[0], &q, 0);
+
+	    if (!*q) {
+		ipv6_rthdr_type = value;
+		num_gateways--;
+		for (i = 0; i < num_gateways; i++)
+			gateways[i] = gateways[i + 1];
+	    }
+	}
+
+
 	max = af == AF_INET ? MAX_GATEWAYS_4 : MAX_GATEWAYS_6;
 	if (num_gateways > max)
 	    ex_error ("Too many gateways specified. No more than %d", max);
@@ -298,7 +322,7 @@ static void init_ip_options (void) {
 	    rth = (struct ip6_rthdr *) rtbuf;
 	    rth->ip6r_nxt = 0;
 	    rth->ip6r_len = 2 * num_gateways;
-	    rth->ip6r_type = IPV6_RTHDR_TYPE_0;
+	    rth->ip6r_type = ipv6_rthdr_type;
 	    rth->ip6r_segleft = num_gateways;
 
 	    *((u_int32_t *) (rth + 1)) = 0;
@@ -428,7 +452,7 @@ static CLIF_option option_list[] = {
 			CLIF_set_flag, &dontfrag, 0, CLIF_ABBREV },
 	{ "f", "first", "first_ttl", "Start from the %s hop (instead from 1)",
 			CLIF_set_uint, &first_hop, 0, 0 },
-	{ "g", "gateway", "gate", "Route packets throw the specified gateway "
+	{ "g", "gateway", "gate", "Route packets through the specified gateway "
 			    "(maximum " _TEXT(MAX_GATEWAYS_4) " for IPv4 and "
 			    _TEXT(MAX_GATEWAYS_6) " for IPv6)",
 			add_gateway, 0, 0, CLIF_SEVERAL },
@@ -501,6 +525,10 @@ static CLIF_option option_list[] = {
 	{ 0, "sport", "num", "Use source port %s for outgoing packets. "
 			    "Implies `-N 1'",
 			    set_port, &src_port, 0, CLIF_EXTRA },
+#ifdef SO_MARK
+	{ 0, "fwmark", "num", "Set firewall mark for outgoing packets",
+			    CLIF_set_uint, &fwmark, 0, 0 },
+#endif
 	{ "U", "udp", 0, "Use UDP to particular port for tracerouting "
 			    "(instead of increasing the port per each probe), "
 			    "default port is " _TEXT(DEF_UDP_PORT),
@@ -551,12 +579,8 @@ int main (int argc, char *argv[]) {
 	ops = tr_get_module (module);
 	if (!ops)  ex_error ("Unknown traceroute module %s", module);
 
-	if (!ops->user && geteuid () != 0)
-	    ex_error ("The specified type of tracerouting "
-			"is allowed for superuser only");
 
-
-	if (first_hop > max_hops)
+	if (!first_hop || first_hop > max_hops)
 		ex_error ("first hop out of range");
 	if (max_hops > MAX_HOPS)
 		ex_error ("max hops cannot be more than " _TEXT(MAX_HOPS));
@@ -575,7 +599,7 @@ int main (int argc, char *argv[]) {
 
 	if (af == AF_INET6 && (tos || flow_label))
 		dst_addr.sin6.sin6_flowinfo =
-			((tos & 0xff) << 20) | (flow_label & 0x000fffff);
+		    htonl (((tos & 0xff) << 20) | (flow_label & 0x000fffff));
 
 	if (src_port) {
 	    src_addr.sin.sin_port = htons ((u_int16_t) src_port);
@@ -639,7 +663,7 @@ int main (int argc, char *argv[]) {
 static void print_header (void) {
 
 	/*  Note, without ending new-line!  */
-	printf ("traceroute to %s (%s), %u hops max, %u byte packets",
+	printf ("traceroute to %s (%s), %u hops max, %zu byte packets",
 				dst_name, addr2str (&dst_addr), max_hops,
 				header_len + data_len);
 	fflush (stdout);
@@ -663,9 +687,7 @@ static void print_addr (sockaddr_any *res) {
 	    buf[0] = '\0';
 	    getnameinfo (&res->sa, sizeof (*res), buf, sizeof (buf),
 							    0, 0, NI_IDN);
-	    /*  foo on errors.  */
-
-	    printf (" %s (%s)", buf, str);
+	    printf (" %s (%s)", buf[0] ? buf : str, str);
 	}
 
 	if (as_lookups)
@@ -994,6 +1016,15 @@ void tune_socket (int sk) {
 	}
 
 
+#ifdef SO_MARK
+	if (fwmark) {
+	    if (setsockopt (sk, SOL_SOCKET, SO_MARK,
+					&fwmark, sizeof (fwmark)) < 0
+	    )  error ("setsockopt SO_MARK");
+	}
+#endif
+
+
 	if (rtbuf && rtbuf_len) {
 	    if (af == AF_INET) {
 		if (setsockopt (sk, IPPROTO_IP, IP_OPTIONS,
@@ -1042,13 +1073,20 @@ void tune_socket (int sk) {
 		flr.flr_label = htonl (flow_label & 0x000fffff);
                 flr.flr_action = IPV6_FL_A_GET;
                 flr.flr_flags = IPV6_FL_F_CREATE;
-                flr.flr_share = IPV6_FL_S_EXCL;
+                flr.flr_share = IPV6_FL_S_ANY;
 		memcpy (&flr.flr_dst, &dst_addr.sin6.sin6_addr,
 						    sizeof (flr.flr_dst));
 
 		if (setsockopt (sk, IPPROTO_IPV6, IPV6_FLOWLABEL_MGR,
 						    &flr, sizeof (flr)) < 0
 		)  error ("setsockopt IPV6_FLOWLABEL_MGR");
+	    }
+
+	    if (tos) {
+		i = tos;
+		if (setsockopt (sk, IPPROTO_IPV6, IPV6_TCLASS,
+						    &i, sizeof (i)) < 0
+		)  error ("setsockopt IPV6_TCLASS");
 	    }
 
 	    if (tos || flow_label) {

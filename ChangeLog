@@ -1,3 +1,51 @@
+2010-12-14  Dmitry Butskoy  <Dmitry@Butskoy.name> - 2.0.17
+
+	*  Adapt code to make possible the use of Linux capabilities
+	   (for raw sockets etc.) instead of superuser privileges only.
+
+	   On modern systems the capabilities can be stored as
+	   file attributes, ie.:
+
+	   "setcap cap_net_raw=pe /usr/bin/traceroute"
+
+
+2010-09-13  Dmitry Butskoy  <Dmitry@Butskoy.name> - 2.0.16
+
+	*  A little work-around in the build system
+	   for the new (buggy?) make 3.82
+
+	*  Add `--fwmark=num' option for firewall mark (for kernel >= 2.6.25).
+	   Idea comes from an anonymous SF patch #3042539
+
+
+2010-07-14  Dmitry Butskoy  <Dmitry@Butskoy.name> - 2.0.15
+
+	*  Use string routines more safely (fix SF bug #3029216)
+
+	*  Provide help for lft wrapper
+
+
+2010-04-21  Dmitry Butskoy  <Dmitry@Butskoy.name> - 2.0.14
+
+	*  Fix support for IPv6's flow_labels and tclass.
+	   Thanks to Peter Bieringer for testing
+
+	*  Use route header "type 2" instead of deprecated "type 0"
+	   for `-g' option for IPv6. The default value can be changed
+	   by specifying a number in the place of the first `-g' address.
+
+
+2009-11-02  Dmitry Butskoy  <Dmitry@Butskoy.name> - 2.0.13
+
+	*  Check for first_hop is not zero value (vladz@devzero.fr)
+
+	*  Always fill unresolved IP address by its numeric interpretation,
+	   even if getnameinfo(3) leaves it untouched (as it does for ipv6
+	   in some glibc versions, whereas always fills for ipv4)
+
+	*  Cosmetic changes for man page (Andreas Mohr)
+
+
 2008-09-15  Dmitry Butskoy  <Dmitry@Butskoy.name> - 2.0.12
 
 	*  Use common recv_reply() routine for all modules which

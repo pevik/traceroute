@@ -203,7 +203,6 @@ static tr_module default_ops = {
 	.send_probe = udp_send_probe,
 	.recv_probe = udp_recv_probe,
 	.expire_probe = udp_expire_probe,
-	.user = 1,
 	.header_len = sizeof (struct udphdr),
 };
 
@@ -216,7 +215,6 @@ static tr_module udp_ops = {
 	.send_probe = udp_send_probe,
 	.recv_probe = udp_recv_probe,
 	.expire_probe = udp_expire_probe,
-	.user = 1,
 	.header_len = sizeof (struct udphdr),
 };
 
@@ -229,7 +227,6 @@ static tr_module udplite_ops = {
 	.send_probe = udp_send_probe,
 	.recv_probe = udp_recv_probe,
 	.expire_probe = udp_expire_probe,
-	.user = 1,
 	.header_len = sizeof (struct udphdr),
 	.options = udplite_options,
 };

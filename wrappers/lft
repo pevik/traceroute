@@ -31,7 +31,7 @@ timeout=1000
 usage () {
     echo "Usage: $prgname [-ACEFINRSTUVbehinpruvz] [-d dport] [-s sport]
 	[-m retry min] [-M retry max] [-a ahead] [-c scatter ms] [-t timeout ms]
-	[-l min ttl] [-H max ttl] [-L length] [-q ISN] [-D device]
+	[-l min ttl] [-H max ttl] [-L length] [-q ISN] [-D device] [--help]
 	[gateway ...]  target:dport" >&2
 }
 
@@ -40,7 +40,7 @@ warning () {
 }
  
 
-PARSED=`getopt 'ACEFINRSTUVbehinpruvzd:s:m:M:a:c:t:l:H:L:q:D:' "$@"`
+PARSED=`getopt -o 'ACEFINRSTUVbehinpruvzd:s:m:M:a:c:t:l:H:L:q:D:' -l help -- "$@"`
 [ $? != 0 ] && exit 2
 
 eval set -- "$PARSED"

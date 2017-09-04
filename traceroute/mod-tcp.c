@@ -150,7 +150,8 @@ static int tcp_init (const sockaddr_any *dest,
 	/*  Create raw socket for tcp   */
 
 	raw_sk = socket (af, SOCK_RAW, IPPROTO_TCP);
-	if (raw_sk < 0)  error ("socket");
+	if (raw_sk < 0)
+		error_or_perm ("socket");
 
 	tune_socket (raw_sk);	    /*  including bind, if any   */
 
@@ -431,7 +432,6 @@ static tr_module tcp_ops = {
 	.send_probe = tcp_send_probe,
 	.recv_probe = tcp_recv_probe,
 	.expire_probe = tcp_expire_probe,
-	.user = 0,
 	.options = tcp_options,
 };
 

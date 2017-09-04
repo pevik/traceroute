@@ -77,7 +77,7 @@ static int raw_init (const sockaddr_any *dest,
 
 	raw_sk = socket (af, SOCK_RAW, protocol);
 	if (raw_sk < 0)
-		error ("socket");
+		error_or_perm ("socket");
 
 	tune_socket (raw_sk);
 
@@ -157,7 +157,6 @@ static tr_module raw_ops = {
 	.recv_probe = raw_recv_probe,
 	.expire_probe = raw_expire_probe,
 	.options = raw_options,
-	.user = 0,
 	.one_per_time = 1,
 };
 
