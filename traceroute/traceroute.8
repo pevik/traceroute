@@ -16,10 +16,10 @@ traceroute \- print the route packets trace to network host
 .BR "" [ "-q nqueries" "] [" "-N squeries" "] [" "-t tos" ]
 .br
 .ti +8
-.BR "" [ "-l flow_label" "] [" "-w waittime" "] [" "-z sendwait" ]
+.BR "" [ "-l flow_label" "] [" "-w waittime" "] [" "-z sendwait" "] [" "-UL" "] [" "-D" ]
 .br
 .ti +8
-.BR "" [ "-UL" "] [" "-P proto" "] [" "--sport=port" "] [" "-M method" "] [" "-O mod_options" ]
+.BR "" [ "-P proto" "] [" "--sport=port" "] [" "-M method" "] [" "-O mod_options" ]
 .br
 .ti +8
 .BR "" [ "--mtu" "] [" "--back" ]
@@ -197,7 +197,7 @@ will use (the destination port number will be incremented by each probe).
 For ICMP tracing, specifies the initial ICMP sequence value (incremented
 by each probe too).
 .br
-For TCP specifies just the (constant) destination
+For TCP and others specifies just the (constant) destination
 port to connect.
 .TP
 .BI \-t " tos
@@ -206,6 +206,9 @@ are 16 (low delay) and 8 (high throughput). Note that in order to use
 some TOS precedence values, you have to be super user.
 .br
 For IPv6, set the Traffic Control value.
+.TP
+.BI \-l " flow_label
+Use specified flow_label for IPv6 packets.
 .TP
 .BI \-w " waittime
 Set the time (in seconds) to wait for a response to a probe (default 5.0 sec).
@@ -293,6 +296,9 @@ the port per each probe). Default port is 53 (dns).
 .TP
 .BI \-UL
 Use UDPLITE for tracerouting (default port is 53).
+.TP
+.BI \-D
+Use DCCP Requests for probes.
 .TP
 .BI \-P " protocol
 Use raw packet of specified protocol for tracerouting. Default protocol is
@@ -463,6 +469,18 @@ Options:
 .B coverage\fR=\fInum
 Set udplite send coverage to
 .IR num .
+.SS dccp \  \ \-D
+Use DCCP Request packets for probes (rfc4340).
+.P
+This method uses the same "half-open technique" as used for TCP.
+The default destination port is 33434.
+.P
+Options:
+.TP
+.B service\fR=\fInum
+Set DCCP service code to
+.IR num
+(default is 1885957735).
 .SS raw \  \  \  \ \-P proto
 Send raw packet of protocol
 .IR proto .

@@ -339,7 +339,7 @@ static void init_ip_options (void) {
 /*	Command line stuff	    */
 
 static int set_af (CLIF_option *optn, char *arg) {
-	int vers = (int) optn->data;
+	int vers = (long) optn->data;
 
 	if (vers == 4)  af = AF_INET;
 	else if (vers == 6)  af = AF_INET6;
@@ -537,6 +537,9 @@ static CLIF_option option_list[] = {
 	{ 0, "UL", 0, "Use UDPLITE for tracerouting (default dest port is "
 			    _TEXT(DEF_UDP_PORT) ")",
 			    set_module, "udplite", 0, CLIF_ONEDASH|CLIF_EXTRA },
+	{ "D", "dccp", 0, "Use DCCP Request for tracerouting (default "
+			    "port is " _TEXT(DEF_DCCP_PORT) ")",
+			    set_module, "dccp", 0, CLIF_EXTRA },
 	{ "P", "protocol", "prot", "Use raw packet of protocol %s "
 			    "for tracerouting", 
 			    set_raw, 0, 0, CLIF_EXTRA },
