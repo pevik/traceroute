@@ -283,7 +283,6 @@ static tr_module dccp_ops = {
 	.send_probe = dccp_send_probe,
 	.recv_probe = dccp_recv_probe,
 	.expire_probe = dccp_expire_probe,
-	.one_per_time = 0,
 	.options = dccp_options,
 };
 
