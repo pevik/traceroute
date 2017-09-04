@@ -148,7 +148,7 @@ void error (const char *str) {
 void error_or_perm (const char *str) {
 
 	if (errno == EPERM)
-		fprintf (stderr, "You have no enough privileges to use "
+		fprintf (stderr, "You do not have enough privileges to use "
 				"this traceroute method.");
 	error (str);
 }
@@ -809,6 +809,15 @@ static void check_expired (probe *pb) {
 	   to the (pseudo-expired) "this" place.
 	*/
 
+	/*  It seems that the case of "answers for latest ones only"
+	   occurs mostly with icmp_unreach error answers ("!H" etc.).
+	   Icmp_echoreply, tcp_reset and even icmp_port_unreach looks
+	   like going in the right order.
+ 	*/
+	if (!fp->err_str[0])	/*  not an icmp_unreach error report...  */
+		return;
+
+
 	if (pfp ||
 	    (idx % probes_per_hop) + (fp - pb) < probes_per_hop
 	) {
@@ -1338,10 +1347,9 @@ void recv_reply (int sk, int err, check_reply_t check_reply) {
 
 		    if (ee->ee_origin != SO_EE_ORIGIN_ICMP)
 			    ee = NULL;
-
 		    /*  dgram icmp sockets might return extra things...  */
-		    if (ee->ee_type == ICMP_SOURCE_QUENCH ||
-			ee->ee_type == ICMP_REDIRECT
+		    else if (ee->ee_type == ICMP_SOURCE_QUENCH ||
+			     ee->ee_type == ICMP_REDIRECT
 		    )  return;
 		}
 	    }
